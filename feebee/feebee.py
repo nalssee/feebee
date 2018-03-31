@@ -169,7 +169,7 @@ class _Connection:
         jcs = ' '.join(join_clauses)
 
         allcols = []
-        for i, (tname, cols, _) in enumerate(tinfos):
+        for i, (_, cols, _) in enumerate(tinfos):
             for c in _listify(cols):
                 if c == '*':
                     allcols += [f't{i}.{c1}' for c1 in self._cols(f'select * from {tinfos[i][0]}')]
@@ -604,7 +604,7 @@ def _read_sas(filename):
 def _read_excel(filename):
     def read_df(df):
         cols = df.columns
-        for i, r in df.iterrows():
+        for _, r in df.iterrows():
             yield {k: v for k, v in zip(cols, ((str(r[c]) for c in cols)))}
 
     filename = os.path.join(WORKSPACE, filename)
