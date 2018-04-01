@@ -619,6 +619,11 @@ def tocsv(tname, where=None, encoding='utf-8'):
         c.tocsv(tname, where, encoding)
 
 
+def rename(old, new):
+    with _connect(_DBNAME) as c:
+        c.rename(old, new)
+
+
 def avg(rs, col, wcol=None, ndigits=None):
     if wcol:
         xs = [r for r in rs if isnum(r[col], r[wcol])] 
