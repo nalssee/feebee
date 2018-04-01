@@ -68,11 +68,6 @@ class _Connection:
         self._cursor.execute('PRAGMA journal_mode=OFF')
 
     def fetch(self, tname, where=None, by=None):
-        def where1(r):
-            try:
-                return where(r)
-            except Exception:
-                return False
         query = f'select * from {tname}'
         if by and by.strip() != '*':
             query += " order by " + by 
@@ -80,7 +75,7 @@ class _Connection:
         rows = self._conn.cursor().execute(query) 
 
         if where:
-            rows = (r for r in rows if where1(r))
+            rows = (r for r in rows if where(r))
 
         if by:
             gby = groupby(rows, _build_keyfn(by))
@@ -226,10 +221,7 @@ def _dict_factory(cursor, row):
 def _add(**kwargs):
     def fn(r):
         for k, v in kwargs.items():
-            try:
-                r[k] = v(r)
-            except Exception:
-                r[k] = _EMPTY 
+            r[k] = v(r)
         return r
     return fn
 
@@ -237,26 +229,20 @@ def _add(**kwargs):
 def genfn(c, fn, input, where, by, arg=None):
     if arg:
         for rs in c.fetch(input, where, by):
-            try:
-                val = fn(rs, arg)
-                if isinstance(val, dict):
-                    yield val
-                else:
-                    yield from val
-            except Exception:
-                pass
+            val = fn(rs, arg)
+            if isinstance(val, dict):
+                yield val
+            else:
+                yield from val
     else:
         if isinstance(fn, dict):
             fn = _add(**fn)
         for rs in c.fetch(input, where, by):
-            try:
-                val = fn(rs)
-                if isinstance(val, dict):
-                    yield val
-                else:
-                    yield from val
-            except Exception:
-                pass
+            val = fn(rs)
+            if isinstance(val, dict):
+                yield val
+            else:
+                yield from val
 
 
 def buildfn(dbfile, argset):
@@ -443,16 +429,6 @@ def process(**kwargs):
             if cnt == 0:
                 print(f'Failed to Create: {[j["output"] for j in jobs_to_do]}')
                 break
-
-
-def perr(fn):
-    @wraps(fn)
-    def wrapper(*args, **kwargs):
-        try:
-            yield from fn(*args, **kwargs)
-        except Exception as e:
-            print(e)
-    return wrapper
 
 
 def dconv(date, infmt, outfmt=None, **size):
