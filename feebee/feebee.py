@@ -1,13 +1,11 @@
 import os
 import sys
 import sqlite3
-import copy as cp
 import warnings
 import numpy as np
 import csv
 import pandas as pd
 import shutil
-import collections
 import locale
 import psutil
 from graphviz import Digraph
@@ -15,8 +13,7 @@ from datetime import datetime
 from concurrent.futures import ProcessPoolExecutor
 from sas7bdat import SAS7BDAT
 from contextlib import contextmanager
-from itertools import groupby, islice, chain, tee, \
-    zip_longest, accumulate, repeat
+from itertools import groupby, chain, zip_longest, accumulate, repeat
 from openpyxl import load_workbook
 import random
 import string
