@@ -7,7 +7,8 @@ PYPATH = os.path.join(TESTPATH, '..', '..')
 sys.path.append(PYPATH)
 
 import feebee as fb
-
+# only for testing
+import feebee.feebee as fb1
 
 # customers.csv
 # CustomerID,CustomerName,ContactName,Address,City,PostalCode,Country
@@ -86,7 +87,7 @@ class TestProcess(unittest.TestCase):
 
             orders_avg_nmonth = fb.map(fn=orders_avg_nmonth, data='orders4'),
         ) 
-        with fb._connect('test.db') as c:
+        with fb1._connect('test.db') as c:
             xs = []
             for r in c.fetch('orders_avg_nmonth'):
                 if fb.isnum(r['avg']):
@@ -109,7 +110,8 @@ class TestProcess(unittest.TestCase):
             orders_by_shippers = fb.map(sumup1, 'orders1', by='shipperid, yyyymm', args=[1, 2, 3])
             
         )
-        with fb._connect('test.db') as c:
+
+        with fb1._connect('test.db') as c:
             xs = []
             for r in c.fetch('orders_by_shippers'):
                 xs.append(r)
