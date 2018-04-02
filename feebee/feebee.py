@@ -59,7 +59,7 @@ class _Connection:
         dbfile = os.path.join(WORKSPACE, dbfile)
 
         self._conn = sqlite3.connect(dbfile)
-        self._conn.row_factory = _dict_factory 
+        self._conn.row_factory = _dict_factory
 
         self._cursor = self._conn.cursor()
         self._cursor.execute(f'PRAGMA cache_size={cache_size}')
@@ -70,9 +70,9 @@ class _Connection:
     def fetch(self, tname, where=None, by=None):
         query = f'select * from {tname}'
         if by and by.strip() != '*':
-            query += " order by " + by 
+            query += " order by " + by
 
-        rows = self._conn.cursor().execute(query) 
+        rows = self._conn.cursor().execute(query)
 
         if where:
             rows = (r for r in rows if where(r))
@@ -279,8 +279,8 @@ def _run(c, job):
 
 def load(file=None, fn=None, encoding='utf-8'):
     return {'cmd': 'load',
-            'file': file, 
-            'fn': fn, 
+            'file': file,
+            'fn': fn,
             'encoding': encoding,
             'inputs': []}
 
@@ -296,7 +296,7 @@ def map(fn=None, data=None, where=None, by=None, args=None):
     if args:
         result['cmd'] = 'parallel'
         result['args'] = args
-    return result 
+    return result
 
 
 def join(*args):
@@ -322,7 +322,7 @@ def process(**kwargs):
         for k, v in kwargs.items():
             v['output'] = k
         return [v for _, v in kwargs.items()]
-    
+
     def find_required_tables(jobs):
         tables = set()
         for job in jobs:
@@ -626,10 +626,10 @@ def rename(old, new):
 
 def avg(rs, col, wcol=None, ndigits=None):
     if wcol:
-        xs = [r for r in rs if isnum(r[col], r[wcol])] 
-        val = np.average([x[col] for x in xs], weights=[x[wcol] for x in xs]) 
+        xs = [r for r in rs if isnum(r[col], r[wcol])]
+        val = np.average([x[col] for x in xs], weights=[x[wcol] for x in xs])
     else:
-        xs = [r for r in rs if isnum(r[col])] 
+        xs = [r for r in rs if isnum(r[col])]
         val = np.average([x[col] for x in xs])
     return round(val, ndigits) if ndigits else val
 
@@ -668,7 +668,7 @@ def chunk(rs, n, column=None):
         return result
     # n is a list of break points
     else:
-        rs.sort(lambda r: r[column]) 
+        rs.sort(key=lambda r: r[column])
         start, end = 0, 0
         result = []
         for bp in n:
