@@ -636,7 +636,7 @@ def avg(rs, col, wcol=None, ndigits=None):
 
 def ols(rs, y, *xs):
     df = pd.DataFrame(rs)
-    return sm.OLS(df[[y]], sm.add_constant(df[xs])).fit()
+    return sm.OLS(df[[y]], sm.add_constant(df[list(xs)])).fit()
 
 
 def chunk(rs, n, column=None):
