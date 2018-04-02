@@ -627,11 +627,11 @@ def rename(old, new):
 def avg(rs, col, wcol=None, ndigits=None):
     if wcol:
         xs = [r for r in rs if isnum(r[col], r[wcol])]
-        val = np.average([x[col] for x in xs], weights=[x[wcol] for x in xs])
+        val = np.average([x[col] for x in xs], weights=[x[wcol] for x in xs]) if xs else _EMPTY
     else:
         xs = [r for r in rs if isnum(r[col])]
-        val = np.average([x[col] for x in xs])
-    return round(val, ndigits) if ndigits else val
+        val = np.average([x[col] for x in xs]) if xs else _EMPTY
+    return round(val, ndigits) if ndigits and xs else val
 
 
 def ols(rs, y, *xs):

@@ -3,5 +3,5 @@
 **/*.gv.pdf
 .vscode/
 __pycache__/
-feebee.egg-info/
+"feebee.egg-info"/
 dist/
