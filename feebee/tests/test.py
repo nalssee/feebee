@@ -19,7 +19,7 @@ import feebee.feebee as fb1
 # 5,Berglunds snabbköp,Christina Berglund,Berguvsvägen 8,Luleå,S-958 22,Sweden
 
 
-# orders.csv 파일은 대략 이렇게 생겼다 
+# orders.csv 파일은 대략 이렇게 생겼다
 # orderid,customerid,employeeid,orderdate,shipperid
 # 10248,90,5,1996-07-04,3
 # 10249,81,6,1996-07-05,1
@@ -33,7 +33,7 @@ def sumup(rs):
 
 def sumup1(rs, shipperid):
     if rs[0]['shipperid'] == shipperid:
-        r = rs[0] 
+        r = rs[0]
         r['norders'] = len(rs)
         yield r
 
@@ -50,7 +50,7 @@ def orders_avg_nmonth(r):
         r['avg'] = round((r['norders'] + r['norders1'] + r['norders2']) / 3, 1)
     except:
         r['avg'] = ''
-    yield r 
+    yield r
 
     r['nmonth'] = 6
     try:
@@ -58,8 +58,15 @@ def orders_avg_nmonth(r):
                           r['norders3'] + r['norders4'] + r['norders5']) / 6, 1)
     except:
         r['avg'] = ''
-    yield r 
+    yield r
 
+
+def add(**kwargs):
+    def fn(r):
+        for k, v in kwargs.items():
+            r[k] = v(r)
+        return r
+    return fn
 
 
 class TestProcess(unittest.TestCase):
@@ -69,7 +76,7 @@ class TestProcess(unittest.TestCase):
             orders = fb.load(file='orders.csv'),
 
             orders1 = fb.map(
-                fn={'yyyymm': lambda r: fb.dconv(r['orderdate'], '%Y-%m-%d', '%Y-%m')},
+                fn=add(yyyymm=lambda r: fb.dconv(r['orderdate'], '%Y-%m-%d', '%Y-%m')),
                 data='orders'
             ),
 
@@ -86,7 +93,7 @@ class TestProcess(unittest.TestCase):
             ),
 
             orders_avg_nmonth = fb.map(fn=orders_avg_nmonth, data='orders4'),
-        ) 
+        )
         with fb1._connect('test.db') as c:
             xs = []
             for r in c.fetch('orders_avg_nmonth'):
@@ -99,8 +106,7 @@ class TestProcess(unittest.TestCase):
         fb.drop('orders, customers')
         fb.process(
             orders=fb.load(file='orders.csv',
-                           fn={'yyyymm': lambda r: fb.dconv(r['orderdate'], '%Y-%m-%d', '%Y-%m')}
-            ),
+                           fn=add(yyyymm=lambda r: fb.dconv(r['orderdate'], '%Y-%m-%d', '%Y-%m'))),
             customers=fb.load('customers.csv'),
             orders1=fb.join(
                 ['orders', '*', 'customerid'],
@@ -108,7 +114,7 @@ class TestProcess(unittest.TestCase):
             ),
 
             orders_by_shippers = fb.map(sumup1, 'orders1', by='shipperid, yyyymm', args=[1, 2, 3])
-            
+
         )
 
         with fb1._connect('test.db') as c:

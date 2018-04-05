@@ -218,31 +218,13 @@ def _dict_factory(cursor, row):
     return d
 
 
-def _add(**kwargs):
-    def fn(r):
-        for k, v in kwargs.items():
-            r[k] = v(r)
-        return r
-    return fn
-
-
 def genfn(c, fn, input, where, by, arg=None):
-    if arg:
-        for rs in c.fetch(input, where, by):
-            val = fn(rs, arg)
-            if isinstance(val, dict):
-                yield val
-            else:
-                yield from val
-    else:
-        if isinstance(fn, dict):
-            fn = _add(**fn)
-        for rs in c.fetch(input, where, by):
-            val = fn(rs)
-            if isinstance(val, dict):
-                yield val
-            else:
-                yield from val
+    for rs in c.fetch(input, where, by):
+        val = fn(rs, arg) if arg else fn(rs)
+        if isinstance(val, dict):
+            yield val
+        else:
+            yield from val
 
 
 def buildfn(dbfile, argset):
@@ -254,8 +236,7 @@ def buildfn(dbfile, argset):
 def _run(c, job):
     cmd = job['cmd']
     if cmd == 'load':
-        fn = _add(**job['fn']) if isinstance(job['fn'], dict) else job['fn']
-        c.load(job['file'], job['output'], job['encoding'], fn)
+        c.load(job['file'], job['output'], job['encoding'], job['fn'])
     elif cmd == 'map':
         seq = genfn(c, job['fn'], job['inputs'][0], job['where'], job['by'])
         c.insert(seq, job['output'])
