@@ -370,7 +370,14 @@ def process(**kwargs):
                     except Exception as e:
                         print('Failed: ', job['output'])
                         print(f"{type(e).__name__}: {e}")
-                        c.drop(job['output'])
+                        try:
+                            # TODO: Sometimes "database locked" error is raised
+                            # but drops the table anyway. No idea why.
+                            # Not OS specific
+                            c.drop(job['output'])
+                        except Exception:
+                            pass
+
                         print('Unfinished: ', [job['output'] for job in jobs_to_do])
                         return jobs_to_do
                     tm = datetime.now().strftime("%Y-%m-%d %H:%M:%S")

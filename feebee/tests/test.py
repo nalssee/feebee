@@ -208,9 +208,5 @@ class TestProcess(unittest.TestCase):
         self.assertEqual([j['output'] for j in jobs], ['orders1'])
 
     
-
-
-
-
 if __name__ == "__main__":
     unittest.main()
