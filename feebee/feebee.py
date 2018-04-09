@@ -85,9 +85,13 @@ class _Connection:
             return
         cols = list(r0)
         n = len(cols)
+
         self._cursor.execute(_create_statement(name, cols))
         istmt = _insert_statement(name, n)
-        self._cursor.executemany(istmt, (list(r.values()) for r in rs if isinstance(r, dict)))
+        try:
+            self._cursor.executemany(istmt, (list(r.values()) for r in rs if isinstance(r, dict)))
+        except:
+            self.drop(name)
 
     def load(self, filename, name=None, encoding='utf-8', fn=None):
         if isinstance(filename, str):
