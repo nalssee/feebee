@@ -95,6 +95,15 @@ def isnum(*xs):
     except (ValueError, TypeError):
         return False
 
+def errornous1(rs):
+    r = rs[0]
+    yield r
+    r['x'] = 10
+    yield r
+
+def errornous2(r):
+    if r['customerid'] > 1000:
+        yield r 
 
 class TestProcess(unittest.TestCase):
     def test_example1(self):
@@ -177,6 +186,31 @@ class TestProcess(unittest.TestCase):
             
             self.assertEqual(len(xs) * 2, len(xs2))
             
+
+    def test_error1(self):
+        with fb1._connect('test.db') as c:
+            c.drop('orders')
+    
+        jobs = fb.process(
+            orders=fb.load(file='orders.csv'),
+            orders1=fb.map(errornous1, 'orders', by='*')
+        )
+        self.assertEqual([j['output'] for j in jobs], ['orders1'])
+
+    def test_error2(self):
+        with fb1._connect('test.db') as c:
+            c.drop('orders')
+    
+        jobs = fb.process(
+            orders=fb.load(file='orders.csv'),
+            orders1=fb.map(errornous2, 'orders')
+        )
+        self.assertEqual([j['output'] for j in jobs], ['orders1'])
+
+    
+
+
+
 
 if __name__ == "__main__":
     unittest.main()

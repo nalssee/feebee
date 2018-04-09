@@ -81,17 +81,14 @@ class _Connection:
         try:
             r0, rs = _peek_first(rs)
         except StopIteration:
-            print(f'No Rows to Create: {name}')
-            return
+            raise ValueError("No row to insert")
+            
         cols = list(r0)
         n = len(cols)
 
         self._cursor.execute(_create_statement(name, cols))
         istmt = _insert_statement(name, n)
-        try:
-            self._cursor.executemany(istmt, (list(r.values()) for r in rs if isinstance(r, dict)))
-        except:
-            self.drop(name)
+        self._cursor.executemany(istmt, (list(r.values()) for r in rs if isinstance(r, dict)))
 
     def load(self, filename, name=None, encoding='utf-8', fn=None):
         if isinstance(filename, str):
@@ -368,19 +365,21 @@ def process(**kwargs):
             cnt = 0
             for i, job in enumerate(jobs_to_do):
                 if is_doable(job):
-                    _run(c, job)
+                    try:
+                        _run(c, job)
+                    except Exception as e:
+                        print('Failed: ', job['output'])
+                        print(f"{type(e).__name__}: {e}")
+                        c.drop(job['output'])
+                        print('Unfinished: ', [job['output'] for job in jobs_to_do])
+                        return jobs_to_do
                     tm = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-                    if job['output'] in c.get_tables():
-                        print(f"Created: {job['output']} at {tm}")
-                    else:
-                        print(f"Failed: {job['output']} at {tm}")
-
+                    print(f"Created: {job['output']} at {tm}")
                     del jobs_to_do[i]
                     cnt += 1
             if cnt == 0:
-                print(f'Failed to Create: {[j["output"] for j in jobs_to_do]}')
-                break
+                print(f'Unfinished: {[j["output"] for j in jobs_to_do]}')
+                return jobs_to_do
 
 
 def _random_string(nchars):
