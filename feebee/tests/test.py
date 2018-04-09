@@ -1,6 +1,10 @@
 import os
 import sys
 import unittest
+from datetime import datetime
+from dateutil.relativedelta import relativedelta
+
+
 
 TESTPATH = os.path.dirname(os.path.realpath(__file__))
 PYPATH = os.path.join(TESTPATH, '..', '..')
@@ -69,14 +73,39 @@ def add(**kwargs):
     return fn
 
 
+def dconv(date, infmt, outfmt=None, **size):
+    """Date arithmetic
+    Returns int if input(date) is int else str
+    """
+    outfmt = outfmt or infmt
+    if not size:
+        # Just convert the format
+        return datetime.strftime(datetime.strptime(str(date), infmt), outfmt)
+    d1 = datetime.strptime(str(date), infmt) + relativedelta(**size)
+    d2 = d1.strftime(outfmt)
+    return int(d2) if isinstance(date, int) else d2
+
+
+def isnum(*xs):
+    "Tests if x is numeric"
+    try:
+        for x in xs:
+            float(x)
+        return True
+    except (ValueError, TypeError):
+        return False
+
+
 class TestProcess(unittest.TestCase):
     def test_example1(self):
-        fb.drop('orders')
+        with fb1._connect('test.db') as c:
+            c.drop('orders, customers')
+
         fb.process(
             orders = fb.load(file='orders.csv'),
 
             orders1 = fb.map(
-                fn=add(yyyymm=lambda r: fb.dconv(r['orderdate'], '%Y-%m-%d', '%Y-%m')),
+                fn=add(yyyymm=lambda r: dconv(r['orderdate'], '%Y-%m-%d', '%Y-%m')),
                 data='orders'
             ),
 
@@ -97,16 +126,18 @@ class TestProcess(unittest.TestCase):
         with fb1._connect('test.db') as c:
             xs = []
             for r in c.fetch('orders_avg_nmonth'):
-                if fb.isnum(r['avg']):
+                if isnum(r['avg']):
                     xs.append(xs)
             self.assertEqual(len(xs), 9)
 
 
     def test_example2(self):
-        fb.drop('orders, customers')
+        with fb1._connect('test.db') as c:
+            c.drop('orders, customers')
+
         fb.process(
             orders=fb.load(file='orders.csv',
-                           fn=add(yyyymm=lambda r: fb.dconv(r['orderdate'], '%Y-%m-%d', '%Y-%m'))),
+                           fn=add(yyyymm=lambda r: dconv(r['orderdate'], '%Y-%m-%d', '%Y-%m'))),
             customers=fb.load('customers.csv'),
             orders1=fb.join(
                 ['orders', '*', 'customerid'],

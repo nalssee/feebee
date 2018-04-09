@@ -1,28 +1,22 @@
 import os
 import sys
 import sqlite3
-import warnings
-import numpy as np
 import csv
-import pandas as pd
 import shutil
 import locale
 import psutil
-from graphviz import Digraph
-from datetime import datetime
-from concurrent.futures import ProcessPoolExecutor
-from sas7bdat import SAS7BDAT
-from contextlib import contextmanager
-from itertools import groupby, chain, zip_longest, accumulate, repeat
-from openpyxl import load_workbook
 import random
 import string
-from datetime import datetime
-from dateutil.relativedelta import relativedelta
-from functools import wraps
 
-warnings.filterwarnings('ignore')
-import statsmodels.api as sm
+from datetime import datetime
+from contextlib import contextmanager
+from itertools import groupby, chain, repeat
+from concurrent.futures import ProcessPoolExecutor
+
+import pandas as pd
+
+from graphviz import Digraph
+from sas7bdat import SAS7BDAT
 
 
 if os.name == 'nt':
@@ -84,9 +78,6 @@ class _Connection:
             yield from rows
 
     def insert(self, rs, name):
-        self.drop(name)
-        rs = iter(rs)
-
         try:
             r0, rs = _peek_first(rs)
         except StopIteration:
@@ -114,24 +105,9 @@ class _Connection:
         else:
             seq = filename
 
-        if name in self.get_tables():
-            return
         if fn:
             seq = (fn(r) for r in seq)
-
         self.insert(seq, name)
-
-    def tocsv(self, tname, where=None, encoding='utf-8'):
-        seq = self.fetch(tname, where=where)
-        r0, rs = _peek_first(seq)
-        columns = list(r0.keys())
-        filename = tname + '.csv'
-        with open(os.path.join(WORKSPACE, filename), 'w', newline='',
-                  encoding=encoding) as f:
-            w = csv.writer(f, delimiter=',')
-            w.writerow(columns)
-            for r in rs:
-                w.writerow(r.values())
 
     def get_tables(self):
         query = self._cursor.execute("select * from sqlite_master where type='table'")
@@ -142,14 +118,7 @@ class _Connection:
         for table in tables:
             self._cursor.execute(f'drop table if exists {table}')
 
-    # may or may not be deprecated
-    def rename(self, old, new):
-        if old in self.get_tables():
-            self._cursor.execute(f'drop table if exists { new }')
-            self._cursor.execute(f'alter table { old } rename to { new }')
-
-    # name must be specified
-    def join(self, tinfos, name=None):
+    def join(self, tinfos, name):
         tname0, _, mcols0 = tinfos[0]
         join_clauses = []
         for i, (tname1, _, mcols1) in enumerate(tinfos[1:], 1):
@@ -173,7 +142,7 @@ class _Connection:
 
     def pwork(self, fn, tname, args):
         n = len(args)
-        rndstr = _random_string()
+        rndstr = _random_string(20)
         tempdbs = ['temp' + rndstr + str(i) for i in range(n)]
         try:
             with _connect(tempdbs[0]) as c:
@@ -412,39 +381,7 @@ def process(**kwargs):
                 break
 
 
-def dconv(date, infmt, outfmt=None, **size):
-    """Date arithmetic
-    Returns int if input(date) is int else str
-    """
-    outfmt = outfmt or infmt
-    if not size:
-        # Just convert the format
-        return datetime.strftime(datetime.strptime(str(date), infmt), outfmt)
-    d1 = datetime.strptime(str(date), infmt) + relativedelta(**size)
-    d2 = d1.strftime(outfmt)
-    return int(d2) if isinstance(date, int) else d2
-
-
-# If the return value is True it is converted to 1 or 0 in sqlite3
-# istext is unncessary for validity check
-def isnum(*xs):
-    "Tests if x is numeric"
-    try:
-        for x in xs:
-            float(x)
-        return True
-    except (ValueError, TypeError):
-        return False
-
-
-def grouper(iterable, n, fillvalue=None):
-    "Collect data into fixed-length chunks or blocks"
-    # grouper('ABCDEFG', 3, 'x') --> ABC DEF Gxx
-    args = [iter(iterable)] * n
-    return zip_longest(fillvalue=fillvalue, *args)
-
-
-def _random_string(nchars=20):
+def _random_string(nchars):
     "Generates a random string of lengh 'n' with alphabets and digits. "
     chars = string.ascii_letters + string.digits
     return ''.join(random.SystemRandom().choice(chars)
@@ -566,96 +503,3 @@ def _read_excel(filename):
     df = pd.read_excel(filename)
     yield from read_df(df)
 
-
-def readxl(fname, sheet_name=None, encoding='utf-8'):
-    def conv(x):
-        try:
-            return locale.atoi(x)
-        except ValueError:
-            try:
-                return locale.atof(x)
-            except Exception:
-                return x
-
-    fname = os.path.join(WORKSPACE, fname)
-    if fname.endswith('.csv'):
-        with open(fname, encoding=encoding) as fin:
-            for rs in csv.reader(x.replace('\0', '') for x in fin):
-                yield [conv(x) for x in rs]
-    else:
-        workbook = load_workbook(fname)
-        if not sheet_name:
-            sheet_name = workbook.sheetnames[0]
-        for row in workbook[sheet_name].iter_rows():
-            yield [c.value for c in row]
-
-
-def drop(tables):
-    with _connect(_DBNAME) as c:
-        c.drop(tables)
-
-
-def tocsv(tname, where=None, encoding='utf-8'):
-    with _connect(_DBNAME) as c:
-        c.tocsv(tname, where, encoding)
-
-
-def rename(old, new):
-    with _connect(_DBNAME) as c:
-        c.rename(old, new)
-
-
-def avg(rs, col, wcol=None, ndigits=None):
-    if wcol:
-        xs = [r for r in rs if isnum(r[col], r[wcol])]
-        val = np.average([x[col] for x in xs], weights=[x[wcol] for x in xs]) if xs else _EMPTY
-    else:
-        xs = [r for r in rs if isnum(r[col])]
-        val = np.average([x[col] for x in xs]) if xs else _EMPTY
-    return round(val, ndigits) if ndigits and xs else val
-
-
-def ols(rs, y, *xs):
-    df = pd.DataFrame(rs)
-    return sm.OLS(df[[y]], sm.add_constant(df[list(xs)])).fit()
-
-
-def chunk(rs, n, column=None):
-    """
-    Usage:
-        |  chunk(rs, 3) => returns 3 rows about the same size
-        |  chunk(rs, [0.3, 0.4, 0.3]) => returns 3 rows of 30%, 40%, 30%
-        |  chunk(rs, [100, 500, 1000], 'col')
-        |      => returns 4 rows with break points 100, 500, 1000 of 'col'
-    """
-    size = len(rs)
-    if isinstance(n, int):
-        start = 0
-        result = []
-        for i in range(1, n + 1):
-            end = int((size * i) / n)
-            # must yield anyway
-            result.append(rs[start:end])
-            start = end
-        return result
-    # n is a list of percentiles
-    elif not column:
-        # then it is a list of percentiles for each chunk
-        assert sum(n) <= 1, f"Sum of percentils for chunks must be <= 1.0"
-        ns = [int(x * size) for x in accumulate(n)]
-        result = []
-        for a, b in zip([0] + ns, ns):
-            result.append(rs[a:b])
-        return result
-    # n is a list of break points
-    else:
-        rs.sort(key=lambda r: r[column])
-        start, end = 0, 0
-        result = []
-        for bp in n:
-            while (rs[end][column] < bp) and end < size:
-                end += 1
-            result.append(rs[start:end])
-            start = end
-        result.append(rs[end:])
-        return result
