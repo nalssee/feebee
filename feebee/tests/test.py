@@ -154,6 +154,29 @@ class TestProcess(unittest.TestCase):
                 xs.append(r)
             self.assertEqual(len(xs), 24)
 
+    # union
+    def test_example3(self):
+        with fb1._connect('test.db') as c:
+            c.drop('orders')
+    
+        fb.process(
+            orders=fb.load(file='orders.csv'),
+            orders1=fb.map(lambda r: r, 'orders'),
+            orders2=fb.union('orders, orders1')
+            # the following is also fine
+            # orders2=fb.union(['orders', 'orders1'])
+        )
+        with fb1._connect('test.db') as c:
+            xs = []
+            for r in c.fetch('orders'):
+                xs.append(r)
+
+            xs2 = []
+            for r in c.fetch('orders2'):
+                xs2.append(r)
+            
+            self.assertEqual(len(xs) * 2, len(xs2))
+            
 
 if __name__ == "__main__":
     unittest.main()

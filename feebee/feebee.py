@@ -258,12 +258,10 @@ def join(*args):
     }
 
 
-def union(*args):
-    inputs = [arg[0] for arg in args]
+def union(inputs):
     return {
         'cmd': 'union',
-        'inputs': inputs,
-        'args': args
+        'inputs': _listify(inputs)
     }
 
 
