@@ -57,7 +57,6 @@ class _Connection:
 
         self._cursor = self._conn.cursor()
         self._cursor.execute(f'PRAGMA cache_size={cache_size}')
-        self._cursor.execute('PRAGMA count_changes=0')
         self._cursor.execute(f'PRAGMA temp_store={temp_store}')
         self._cursor.execute('PRAGMA journal_mode=OFF')
 
@@ -82,7 +81,7 @@ class _Connection:
             r0, rs = _peek_first(rs)
         except StopIteration:
             raise ValueError("No row to insert")
-            
+
         cols = list(r0)
         n = len(cols)
 
