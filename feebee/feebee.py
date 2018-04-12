@@ -4,7 +4,6 @@ import sqlite3
 import csv
 import shutil
 import locale
-import psutil
 import random
 import string
 
@@ -13,9 +12,8 @@ from contextlib import contextmanager
 from itertools import groupby, chain, repeat
 from concurrent.futures import ProcessPoolExecutor
 
+import psutil
 import pandas as pd
-
-from graphviz import Digraph
 from sas7bdat import SAS7BDAT
 
 
@@ -29,7 +27,6 @@ WORKSPACE = ''
 _EMPTY = ''
 _filename, _ = os.path.splitext(os.path.basename(sys.argv[0]))
 _DBNAME = _filename + '.db'
-_GRAPH_NAME = _filename + '.gv'
 
 
 @contextmanager
@@ -302,18 +299,6 @@ def process(**kwargs):
             graph[x] = list(graph[x])
         return graph
 
-    def render_graph(graph, jobs):
-        dot = Digraph()
-        for k, v in graph.items():
-            dot.node(k, k)
-            if k != v:
-                for v1 in v:
-                    dot.edge(k, v1)
-        for job in jobs:
-            if job['cmd'] == 'load':
-                dot.node(job['output'], job['output'])
-        dot.render(_GRAPH_NAME)
-
     jobs = append_output(kwargs)
     required_tables = find_required_tables(jobs)
     with _connect(_DBNAME) as c:
@@ -344,11 +329,6 @@ def process(**kwargs):
                 and job['output'] in missing_tables
 
         graph = build_graph(jobs)
-        try:
-            render_graph(graph, jobs)
-        except Exception:
-            pass
-
         starting_points = [job['output'] for job in jobs if job['cmd'] == 'load']
         paths = []
         for sp in starting_points:
