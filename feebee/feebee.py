@@ -28,6 +28,7 @@ _EMPTY = ''
 _filename, _ = os.path.splitext(os.path.basename(sys.argv[0]))
 _DBNAME = _filename + '.db'
 _GRAPH_NAME = _filename + '.gv'
+_JOBS = {}
 
 
 @contextmanager
@@ -200,7 +201,7 @@ def buildfn(dbfile, argset):
         c.insert(genfn(c, fn, input, where, by, arg), output)
 
 
-def _run(c, job):
+def _execute(c, job):
     cmd = job['cmd']
     if cmd == 'load':
         c.load(job['file'], job['output'], job['encoding'], job['fn'])
@@ -263,7 +264,14 @@ def union(inputs):
     }
 
 
-def process(**kwargs):
+def register(**kwargs):
+    for k, _ in kwargs.items():
+        if _JOBS.get(k, False):
+            raise ValueError(f"Table duplication: {k}")
+    _JOBS.update(kwargs)
+
+
+def run():
     def append_output(kwargs):
         for k, v in kwargs.items():
             v['output'] = k
@@ -312,7 +320,7 @@ def process(**kwargs):
                 dot.node(job['output'], job['output'])
         dot.render(_GRAPH_NAME)
 
-    jobs = append_output(kwargs)
+    jobs = append_output(_JOBS)
     required_tables = find_required_tables(jobs)
     with _connect(_DBNAME) as c:
         def delete_after(missing_table, paths):
@@ -363,7 +371,7 @@ def process(**kwargs):
             for i, job in enumerate(jobs_to_do):
                 if is_doable(job):
                     try:
-                        _run(c, job)
+                        _execute(c, job)
                     except Exception as e:
                         print('Failed: ', job['output'])
                         print(f"{type(e).__name__}: {e}")

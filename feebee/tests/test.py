@@ -110,7 +110,8 @@ class TestProcess(unittest.TestCase):
         with fb1._connect('test.db') as c:
             c.drop('orders, customers')
 
-        fb.process(
+        fb1._JOBS = {}        
+        fb.register(
             orders = fb.load(file='orders.csv'),
 
             orders1 = fb.map(
@@ -132,6 +133,9 @@ class TestProcess(unittest.TestCase):
 
             orders_avg_nmonth = fb.map(fn=orders_avg_nmonth, data='orders4'),
         )
+
+        fb.run()
+
         with fb1._connect('test.db') as c:
             xs = []
             for r in c.fetch('orders_avg_nmonth'):
@@ -144,7 +148,8 @@ class TestProcess(unittest.TestCase):
         with fb1._connect('test.db') as c:
             c.drop('orders, customers')
 
-        fb.process(
+        fb1._JOBS = {}        
+        fb.register(
             orders=fb.load(file='orders.csv',
                            fn=add(yyyymm=lambda r: dconv(r['orderdate'], '%Y-%m-%d', '%Y-%m'))),
             customers=fb.load('customers.csv'),
@@ -157,6 +162,7 @@ class TestProcess(unittest.TestCase):
 
         )
 
+        fb.run()
         with fb1._connect('test.db') as c:
             xs = []
             for r in c.fetch('orders_by_shippers'):
@@ -167,14 +173,44 @@ class TestProcess(unittest.TestCase):
     def test_example3(self):
         with fb1._connect('test.db') as c:
             c.drop('orders')
-    
-        fb.process(
+
+        fb1._JOBS = {} 
+        fb.register(
             orders=fb.load(file='orders.csv'),
             orders1=fb.map(lambda r: r, 'orders'),
             orders2=fb.union('orders, orders1')
             # the following is also fine
             # orders2=fb.union(['orders', 'orders1'])
         )
+        fb.run()
+
+        with fb1._connect('test.db') as c:
+            xs = []
+            for r in c.fetch('orders'):
+                xs.append(r)
+
+            xs2 = []
+            for r in c.fetch('orders2'):
+                xs2.append(r)
+            
+            self.assertEqual(len(xs) * 2, len(xs2))
+
+    def test_example4(self):
+        with fb1._connect('test.db') as c:
+            c.drop('orders')
+
+        fb1._JOBS = {} 
+        fb.register(
+            orders=fb.load(file='orders.csv'),
+        )
+        # You can do something similar to macro programming
+        # by separating registration. Imagine
+        fb.register(
+            orders1=fb.map(lambda r: r, 'orders'),
+            orders2=fb.union('orders, orders1')
+        )
+        fb.run()
+
         with fb1._connect('test.db') as c:
             xs = []
             for r in c.fetch('orders'):
@@ -191,21 +227,27 @@ class TestProcess(unittest.TestCase):
         with fb1._connect('test.db') as c:
             c.drop('orders')
     
-        jobs = fb.process(
+        fb1._JOBS = {} 
+        fb.register(
             orders=fb.load(file='orders.csv'),
             orders1=fb.map(errornous1, 'orders', by='*')
         )
+        jobs = fb.run()
+
         self.assertEqual([j['output'] for j in jobs], ['orders1'])
 
     def test_error2(self):
         with fb1._connect('test.db') as c:
             c.drop('orders')
     
-        jobs = fb.process(
+        fb1._JOBS = {} 
+        fb.register(
             orders=fb.load(file='orders.csv'),
             orders1=fb.map(errornous2, 'orders')
         )
+        jobs = fb.run()
         self.assertEqual([j['output'] for j in jobs], ['orders1'])
+        
 
     
 if __name__ == "__main__":
