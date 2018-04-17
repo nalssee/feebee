@@ -386,7 +386,7 @@ def run():
                         print('Unfinished: ', [job['output'] for job in jobs_to_do])
                         return jobs_to_do
                     tm = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    print(f"Created: {job['output']} at {tm}")
+                    print(f"{job['cmd']}: {job['output']} at {tm}")
                     del jobs_to_do[i]
                     cnt += 1
             if cnt == 0:
