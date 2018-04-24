@@ -35,11 +35,15 @@ def sumup(rs):
     r['norders'] = len(rs)
     return r
 
-def sumup1(rs, shipperid):
-    if rs[0]['shipperid'] == shipperid:
-        r = rs[0]
-        r['norders'] = len(rs)
-        yield r
+def bigmarket(rs, a):
+    if len(rs) > a:
+        yield from rs 
+
+def bigmarket1(rs, a):
+    if len(rs) > a:
+        return rs 
+    else:
+        return []
 
 
 def cnt(rs):
@@ -142,6 +146,30 @@ class TestProcess(unittest.TestCase):
                 if isnum(r['avg']):
                     xs.append(xs)
             self.assertEqual(len(xs), 9)
+
+    def test_example2(self):
+        with fb1._connect('test.db') as c:
+            c.drop('orders, customers')
+
+        fb1._JOBS = {}
+        fb.register(
+            customers = fb.load(file='customers.csv'),
+            customers1 = fb.map(bigmarket, 'customers', by='Country', arg=5),
+            # 2 is a chunksize, default is 1
+            customers2 = fb.map(bigmarket1, 'customers', by='Country', arg=5, parallel=2)
+        )
+        fb.run()
+
+        with fb1._connect('test.db') as c:
+            xs = []
+            for r in c.fetch('customers1'):
+                xs.append(r)
+
+            xs2 = []
+            for r in c.fetch('customers2'):
+                xs2.append(r)
+            self.assertEqual(len(xs), len(xs2))
+
 
     # union
     def test_example3(self):

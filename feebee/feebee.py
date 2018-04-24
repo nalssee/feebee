@@ -150,35 +150,36 @@ def _dict_factory(cursor, row):
     return d
 
 
-def flatten(seq):
-    for x in seq:
-        if isinstance(x, dict):
-            yield x
-        else:
-            yield from x
-
-
-def genfn(c, fn, input, where, by, arg=None):
-    if arg:
-        yield from flatten(fn(rs, arg) for rs in c.fetch(input, where, by))
-    else:
-        yield from flatten(fn(rs) for rs in c.fetch(input, where, by))
-
-
 def _execute(c, job):
+    def flatten(seq):
+        for x in seq:
+            if isinstance(x, dict):
+                yield x
+            else:
+                yield from x
+
+    def genfn(c, fn, input, where, by, arg=None):
+        if arg:
+            yield from flatten(fn(rs, arg) for rs in c.fetch(input, where, by))
+        else:
+            yield from flatten(fn(rs) for rs in c.fetch(input, where, by))
+
     cmd = job['cmd']
     if cmd == 'load':
         c.load(job['file'], job['output'], job['encoding'], job['fn'])
     elif cmd == 'map':
         if job['parallel']:
             with ProcessPoolExecutor(max_workers=psutil.cpu_count(logical=False)) as exe:
-                # TODO: what about the chunksize?
+                cnksize = job['parallel'] if isinstance(job['parallel'], int) else 1
                 if job['arg']:
                     seq = exe.map(job['fn'],
                                   c.fetch(job['inputs'][0], job['where'], job['by']),
-                                  repeat(job['arg']))
+                                  repeat(job['arg']),
+                                  chunksize=cnksize)
                 else:
-                    seq = exe.map(job['fn'], c.fetch(job['inputs'][0], job['where'], job['by']))
+                    seq = exe.map(job['fn'], 
+                                  c.fetch(job['inputs'][0], job['where'], job['by']),
+                                  chunksize=cnksize)
                 c.insert(flatten(seq), job['output'])
         else:
             seq = genfn(c, job['fn'], job['inputs'][0], job['where'], job['by'], job['arg'])
