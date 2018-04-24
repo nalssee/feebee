@@ -139,42 +139,6 @@ class _Connection:
         query = f"create table {name} as select {', '.join(allcols)} from {tname0} as t0 {jcs}"
         self._cursor.execute(query)
 
-    def pwork(self, fn, tname, args):
-        n = len(args)
-        rndstr = _random_string(20)
-        tempdbs = ['temp' + rndstr + str(i) for i in range(n)]
-        try:
-            with _connect(tempdbs[0]) as c:
-                c.insert(self.fetch(tname), tname)
-            for tempdb in tempdbs[1:]:
-                shutil.copyfile(os.path.join(WORKSPACE, tempdbs[0]),
-                                os.path.join(WORKSPACE, tempdb))
-
-            with ProcessPoolExecutor(max_workers=psutil.cpu_count(logical=False)) as exe:
-                exe.map(fn, tempdbs, args)
-
-            with _connect(tempdbs[0]) as c:
-                tables = [t for t in c.get_tables() if t != tname]
-
-            for table in tables:
-                self._collect(table, tempdbs)
-        finally:
-            for tempdb in tempdbs:
-                fname = os.path.join(WORKSPACE, tempdb)
-                if os.path.isfile(fname):
-                    os.remove(fname)
-
-    def _collect(self, tname, dbnames):
-        with _connect(dbnames[0]) as c:
-            cols = c._cols(f"select * from {tname}")
-
-        self.drop(tname)
-        self._cursor.execute(_create_statement(tname, cols))
-        ismt = _insert_statement(tname, len(cols))
-        for dbname in dbnames:
-            with _connect(dbname) as c:
-                self._cursor.executemany(ismt, (list(r.values()) for r in c.fetch(tname)))
-
     def _cols(self, query):
         return [c[0] for c in self._cursor.execute(query).description]
 
@@ -186,19 +150,19 @@ def _dict_factory(cursor, row):
     return d
 
 
-def genfn(c, fn, input, where, by, arg=None):
-    for rs in c.fetch(input, where, by):
-        val = fn(rs, arg) if arg else fn(rs)
-        if isinstance(val, dict):
-            yield val
+def flatten(seq):
+    for x in seq:
+        if isinstance(x, dict):
+            yield x
         else:
-            yield from val
+            yield from x
 
 
-def buildfn(dbfile, argset):
-    fn, input, where, by, arg, output = argset
-    with _connect(dbfile) as c:
-        c.insert(genfn(c, fn, input, where, by, arg), output)
+def genfn(c, fn, input, where, by, arg=None):
+    if arg:
+        yield from flatten(fn(rs, arg) for rs in c.fetch(input, where, by))
+    else:
+        yield from flatten(fn(rs) for rs in c.fetch(input, where, by))
 
 
 def _execute(c, job):
@@ -206,16 +170,20 @@ def _execute(c, job):
     if cmd == 'load':
         c.load(job['file'], job['output'], job['encoding'], job['fn'])
     elif cmd == 'map':
-        seq = genfn(c, job['fn'], job['inputs'][0], job['where'], job['by'])
-        c.insert(seq, job['output'])
-    elif cmd == 'parallel':
-        c.pwork(buildfn, job['inputs'][0],
-                list(zip(repeat(job['fn']),
-                         repeat(job['inputs'][0]),
-                         repeat(job['where']),
-                         repeat(job['by']),
-                         job['args'],
-                         repeat(job['output']))))
+        if job['parallel']:
+            with ProcessPoolExecutor(max_workers=psutil.cpu_count(logical=False)) as exe:
+                # TODO: what about the chunksize?
+                if job['arg']:
+                    seq = exe.map(job['fn'],
+                                  c.fetch(job['inputs'][0], job['where'], job['by']),
+                                  repeat(job['arg']))
+                else:
+                    seq = exe.map(job['fn'], c.fetch(job['inputs'][0], job['where'], job['by']))
+                c.insert(flatten(seq), job['output'])
+        else:
+            seq = genfn(c, job['fn'], job['inputs'][0], job['where'], job['by'], job['arg'])
+            c.insert(seq, job['output'])
+
     elif cmd == 'join':
         c.join(job['args'], job['output'])
     elif cmd == 'union':
@@ -234,18 +202,16 @@ def load(file=None, fn=None, encoding='utf-8'):
             'inputs': []}
 
 
-def map(fn=None, data=None, where=None, by=None, args=None):
-    result = {
+def map(fn=None, data=None, where=None, by=None, arg=None, parallel=False):
+    return {
         'cmd': 'map',
         'fn': fn,
         'inputs': [data],
         'where': where,
-        'by': by
+        'by': by,
+        'arg': arg,
+        'parallel': parallel
     }
-    if args:
-        result['cmd'] = 'parallel'
-        result['args'] = args
-    return result
 
 
 def join(*args):

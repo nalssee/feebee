@@ -33,7 +33,7 @@ import feebee.feebee as fb1
 def sumup(rs):
     r = rs[0]
     r['norders'] = len(rs)
-    yield r
+    return r
 
 def sumup1(rs, shipperid):
     if rs[0]['shipperid'] == shipperid:
@@ -103,14 +103,14 @@ def errornous1(rs):
 
 def errornous2(r):
     if r['customerid'] > 1000:
-        yield r 
+        yield r
 
 class TestProcess(unittest.TestCase):
     def test_example1(self):
         with fb1._connect('test.db') as c:
             c.drop('orders, customers')
 
-        fb1._JOBS = {}        
+        fb1._JOBS = {}
         fb.register(
             orders = fb.load(file='orders.csv'),
 
@@ -119,7 +119,7 @@ class TestProcess(unittest.TestCase):
                 data='orders'
             ),
 
-            orders2 = fb.map(fn=sumup, data='orders1', by='yyyymm'),
+            orders2 = fb.map(fn=sumup, data='orders1', by='yyyymm', parallel=True),
             orders3 = fb.map(fn=cnt, data='orders2', by='*'),
 
             orders4 = fb.join(
@@ -143,38 +143,12 @@ class TestProcess(unittest.TestCase):
                     xs.append(xs)
             self.assertEqual(len(xs), 9)
 
-
-    def test_example2(self):
-        with fb1._connect('test.db') as c:
-            c.drop('orders, customers')
-
-        fb1._JOBS = {}        
-        fb.register(
-            orders=fb.load(file='orders.csv',
-                           fn=add(yyyymm=lambda r: dconv(r['orderdate'], '%Y-%m-%d', '%Y-%m'))),
-            customers=fb.load('customers.csv'),
-            orders1=fb.join(
-                ['orders', '*', 'customerid'],
-                ['customers', 'customername, country', 'CustomerID']
-            ),
-
-            orders_by_shippers = fb.map(sumup1, 'orders1', by='shipperid, yyyymm', args=[1, 2, 3])
-
-        )
-
-        fb.run()
-        with fb1._connect('test.db') as c:
-            xs = []
-            for r in c.fetch('orders_by_shippers'):
-                xs.append(r)
-            self.assertEqual(len(xs), 24)
-
     # union
     def test_example3(self):
         with fb1._connect('test.db') as c:
             c.drop('orders')
 
-        fb1._JOBS = {} 
+        fb1._JOBS = {}
         fb.register(
             orders=fb.load(file='orders.csv'),
             orders1=fb.map(lambda r: r, 'orders'),
@@ -192,14 +166,14 @@ class TestProcess(unittest.TestCase):
             xs2 = []
             for r in c.fetch('orders2'):
                 xs2.append(r)
-            
+
             self.assertEqual(len(xs) * 2, len(xs2))
 
     def test_example4(self):
         with fb1._connect('test.db') as c:
             c.drop('orders')
 
-        fb1._JOBS = {} 
+        fb1._JOBS = {}
         fb.register(
             orders=fb.load(file='orders.csv'),
         )
@@ -219,15 +193,15 @@ class TestProcess(unittest.TestCase):
             xs2 = []
             for r in c.fetch('orders2'):
                 xs2.append(r)
-            
+
             self.assertEqual(len(xs) * 2, len(xs2))
-            
+
 
     def test_error1(self):
         with fb1._connect('test.db') as c:
             c.drop('orders')
-    
-        fb1._JOBS = {} 
+
+        fb1._JOBS = {}
         fb.register(
             orders=fb.load(file='orders.csv'),
             orders1=fb.map(errornous1, 'orders', by='*')
@@ -239,16 +213,16 @@ class TestProcess(unittest.TestCase):
     def test_error2(self):
         with fb1._connect('test.db') as c:
             c.drop('orders')
-    
-        fb1._JOBS = {} 
+
+        fb1._JOBS = {}
         fb.register(
             orders=fb.load(file='orders.csv'),
             orders1=fb.map(errornous2, 'orders')
         )
         jobs = fb.run()
         self.assertEqual([j['output'] for j in jobs], ['orders1'])
-        
 
-    
+
+
 if __name__ == "__main__":
     unittest.main()
