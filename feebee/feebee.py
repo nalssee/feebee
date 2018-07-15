@@ -136,8 +136,18 @@ class _Connection:
                 else:
                     allcols.append(f't{i}.{c}')
 
+        # create indices
+        ind_tnames = []
+        for tname, _, mcols in tinfos:
+            mcols1 = [c for c in _listify(mcols) if c]
+            ind_tname = tname + _random_string(10)
+            self._cursor.execute(f"create index {ind_tname} on {tname}({', '.join(mcols1)})")
+
         query = f"create table {name} as select {', '.join(allcols)} from {tname0} as t0 {jcs}"
         self._cursor.execute(query)
+
+        for ind_tname in ind_tnames:
+            self._cursor.execute(f"drop index {ind_tname}")
 
     def _cols(self, query):
         return [c[0] for c in self._cursor.execute(query).description]
@@ -404,6 +414,8 @@ def _listify(x):
         except TypeError:
             return [x]
 
+# print(','.join(_listify(',hello')))
+# print(_listify(',hello'))
 
 def _build_keyfn(key):
     " if key is a string return a key function "
