@@ -248,6 +248,32 @@ def register(**kwargs):
     _JOBS.update(kwargs)
 
 
+def seq1():
+    print('hello')
+
+def seq(fn, tname, by=None, where=None, arg=None, parallel=False):
+    result = []
+    with _connect(_DBNAME) as c:
+        if parallel:
+            with ProcessPoolExecutor(max_workers=psutil.cpu_count(logical=False)) as exe:
+                cnksize = parallel if isinstance(parallel, int) else 1
+                if arg:
+                    for x in exe.map(fn, c.fetch(tname, where=where, by=by), repeat(arg), chunksize=cnksize):
+                        result.append(x)
+                else:
+                    for x in exe.map(fn, c.fetch(tname, where=where, by=by), chunksize=cnksize):
+                        result.append(x)
+
+        else:
+            if arg:
+                for x, a in zip(c.fetch(tname, where=where, by=by), repeat(arg)):
+                    result.append(fn(x, a))
+            else:
+                for x in c.fetch(tname, where=where, by=by):
+                    result.append(fn(x))
+    return result 
+
+
 def run():
     def append_output(kwargs):
         for k, v in kwargs.items():

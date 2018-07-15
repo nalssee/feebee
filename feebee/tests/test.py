@@ -89,7 +89,6 @@ def dconv(date, infmt, outfmt=None, **size):
     d2 = d1.strftime(outfmt)
     return int(d2) if isinstance(date, int) else d2
 
-
 def isnum(*xs):
     "Tests if x is numeric"
     try:
@@ -108,6 +107,10 @@ def errornous1(rs):
 def errornous2(r):
     if r['customerid'] > 1000:
         yield r
+
+
+def add1(rs, col):
+    return rs[0][col] + 1
 
 class TestProcess(unittest.TestCase):
     def test_example1(self):
@@ -250,6 +253,20 @@ class TestProcess(unittest.TestCase):
         jobs = fb.run()
         self.assertEqual([j['output'] for j in jobs], ['orders1'])
 
+    def test_seq(self):
+        with fb1._connect('test.db') as c:
+            c.drop('orders')
+        fb1._JOBS = {}
+        fb.register(
+            orders=fb.load(file='orders.csv')
+        )
+        fb.run()
+        xs = fb.seq(add1, 'orders', arg='orderid', 
+                     where=lambda r: r['shipperid'] > 1,
+                     parallel=2,
+                     by='shipperid')
+        self.assertEqual(xs, [10251, 10249]) 
+                    
 
 
 if __name__ == "__main__":
