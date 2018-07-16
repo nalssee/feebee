@@ -248,9 +248,6 @@ def register(**kwargs):
     _JOBS.update(kwargs)
 
 
-def seq1():
-    print('hello')
-
 def seq(fn, tname, by=None, where=None, arg=None, parallel=False):
     result = []
     with _connect(_DBNAME) as c:
