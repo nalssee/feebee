@@ -11,7 +11,6 @@ from datetime import datetime
 from contextlib import contextmanager
 from itertools import groupby, chain, repeat
 from concurrent.futures import ProcessPoolExecutor
-from inspect import signature 
 
 import psutil
 import pandas as pd
@@ -146,7 +145,7 @@ class _Connection:
 
         query = f"create table {name} as select {', '.join(allcols)} from {tname0} as t0 {jcs}"
         self._cursor.execute(query)
-
+        # drop indices, not so necessary
         for ind_tname in ind_tnames:
             self._cursor.execute(f"drop index {ind_tname}")
 
@@ -183,19 +182,17 @@ def _execute(c, job):
             with ProcessPoolExecutor(max_workers=psutil.cpu_count(logical=False)) as exe:
                 cnksize = job['parallel'] if isinstance(job['parallel'], int) else 1
                 if job['arg']:
-                    arg1 = run_if_thunk(job['arg'])
                     seq = exe.map(job['fn'],
                                   c.fetch(job['inputs'][0], job['where'], job['by']),
-                                  repeat(arg1),
+                                  repeat(job['arg']),
                                   chunksize=cnksize)
                 else:
-                    seq = exe.map(job['fn'], 
+                    seq = exe.map(job['fn'],
                                   c.fetch(job['inputs'][0], job['where'], job['by']),
                                   chunksize=cnksize)
                 c.insert(flatten(seq), job['output'])
         else:
-            arg1 = run_if_thunk(job['arg'])
-            seq = genfn(c, job['fn'], job['inputs'][0], job['where'], job['by'], arg1)
+            seq = genfn(c, job['fn'], job['inputs'][0], job['where'], job['by'], job['arg'])
             c.insert(seq, job['output'])
 
     elif cmd == 'join':
@@ -249,32 +246,6 @@ def register(**kwargs):
         if _JOBS.get(k, False):
             raise ValueError(f"Table duplication: {k}")
     _JOBS.update(kwargs)
-
-
-# TODO: too much duplications with _execute
-def seq(fn, tname, by=None, where=None, arg=None, parallel=False):
-    result = []
-    with _connect(_DBNAME) as c:
-        if parallel:
-            with ProcessPoolExecutor(max_workers=psutil.cpu_count(logical=False)) as exe:
-                cnksize = parallel if isinstance(parallel, int) else 1
-                if arg:
-                    arg1 = run_if_thunk(arg)
-                    for x in exe.map(fn, c.fetch(tname, where=where, by=by), repeat(arg1), chunksize=cnksize):
-                        result.append(x)
-                else:
-                    for x in exe.map(fn, c.fetch(tname, where=where, by=by), chunksize=cnksize):
-                        result.append(x)
-
-        else:
-            if arg:
-                arg1 = run_if_thunk(arg)
-                for x, a in zip(c.fetch(tname, where=where, by=by), repeat(arg1)):
-                    result.append(fn(x, a))
-            else:
-                for x in c.fetch(tname, where=where, by=by):
-                    result.append(fn(x))
-    return result 
 
 
 def run():
@@ -443,8 +414,6 @@ def _listify(x):
         except TypeError:
             return [x]
 
-# print(','.join(_listify(',hello')))
-# print(_listify(',hello'))
 
 def _build_keyfn(key):
     " if key is a string return a key function "
@@ -523,8 +492,4 @@ def _read_excel(filename):
     # it's OK. Excel files are small
     df = pd.read_excel(filename)
     yield from read_df(df)
-
-
-def run_if_thunk(x):
-    return x() if callable(x) and len(signature(x).parameters) == 0 else x
 

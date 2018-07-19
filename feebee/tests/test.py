@@ -5,7 +5,6 @@ from datetime import datetime
 from dateutil.relativedelta import relativedelta
 
 
-
 TESTPATH = os.path.dirname(os.path.realpath(__file__))
 PYPATH = os.path.join(TESTPATH, '..', '..')
 sys.path.append(PYPATH)
@@ -37,11 +36,11 @@ def sumup(rs):
 
 def bigmarket(rs, a):
     if len(rs) > a:
-        yield from rs 
+        yield from rs
 
 def bigmarket1(rs, a):
     if len(rs) > a:
-        return rs 
+        return rs
     else:
         return []
 
@@ -252,21 +251,6 @@ class TestProcess(unittest.TestCase):
         )
         jobs = fb.run()
         self.assertEqual([j['output'] for j in jobs], ['orders1'])
-
-    def test_seq(self):
-        with fb1._connect('test.db') as c:
-            c.drop('orders')
-        fb1._JOBS = {}
-        fb.register(
-            orders=fb.load(file='orders.csv')
-        )
-        fb.run()
-        xs = fb.seq(add1, 'orders', arg='orderid', 
-                     where=lambda r: r['shipperid'] > 1,
-                     parallel=2,
-                     by='shipperid')
-        self.assertEqual(xs, [10251, 10249]) 
-                    
 
 
 if __name__ == "__main__":
