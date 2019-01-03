@@ -367,7 +367,11 @@ def run():
                     del jobs_to_do[i]
                     cnt += 1
             if cnt == 0:
-                print(f'Unfinished: {[j["output"] for j in jobs_to_do]}')
+                for j in jobs_to_do:
+                    print(f'Unfinished: {j["output"]}')
+                    for t in j['inputs']:
+                        if t not in c.get_tables():
+                            print(f'Table not found: {t}')
                 return jobs_to_do
 
 
