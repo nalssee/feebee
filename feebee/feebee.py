@@ -6,6 +6,8 @@ import shutil
 import locale
 import random
 import string
+import signal
+import logging
 
 from datetime import datetime
 from contextlib import contextmanager
@@ -30,17 +32,37 @@ _DBNAME = _filename + '.db'
 _GRAPH_NAME = _filename + '.gv'
 _JOBS = {}
 
-
 @contextmanager
 def _connect(dbfile, cache_size=100000, temp_store=2):
     conn = _Connection(dbfile, cache_size, temp_store)
     try:
         yield conn
     finally:
-        # should I close the cursor?
-        conn._cursor.close()
-        conn._conn.commit()
-        conn._conn.close()
+        # Trying to make closing atomic to handle multiple ctrl-cs
+        # Imagine the first ctrl-c have the process enter the 'finally block'
+        # and the second ctrl-c interrupts the block in the middle 
+        # so that the database is corrupted
+        with _delayed_keyboard_interrupts():
+            # should I close the cursor?
+            conn._cursor.close()
+            conn._conn.commit()
+            conn._conn.close()
+
+
+@contextmanager
+def _delayed_keyboard_interrupts():
+    signal_received = False 
+    def handler(sig, frame):
+        signal_received = (sig, frame) 
+        logging.debug('SIGINT received. Delaying KeyboardInterrupt.')
+    old_handler = signal.signal(signal.SIGINT, handler)
+
+    try:
+        yield
+    finally:
+        signal.signal(signal.SIGINT, old_handler)
+        if signal_received:
+            old_handler(*signal_received)
 
 
 class _Connection:

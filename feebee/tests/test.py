@@ -3,7 +3,7 @@ import sys
 import unittest
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
-
+import time
 
 TESTPATH = os.path.dirname(os.path.realpath(__file__))
 PYPATH = os.path.join(TESTPATH, '..', '..')
@@ -110,6 +110,10 @@ def errornous2(r):
 
 def add1(rs, col):
     return rs[0][col] + 1
+
+
+def longtake(r):
+    time.sleep(10)
 
 class TestProcess(unittest.TestCase):
     def test_example1(self):
@@ -254,7 +258,7 @@ class TestProcess(unittest.TestCase):
 
     def test_error3(self):
         fb.register(
-            _temp = fb.map(lambda r: r, 'very_unlikely_table_name')
+            _temp = fb.map(longtake, 'orders')
         )
         fb.run()
 
