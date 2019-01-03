@@ -19,6 +19,14 @@ import pandas as pd
 from sas7bdat import SAS7BDAT
 from graphviz import Digraph
 
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s %(levelname)s %(module)s - %(message)s',
+    datefmt="%Y-%m-%d %H:%M:%S"
+)
+logger = logging.getLogger(__name__)
+
 if os.name == 'nt':
     locale.setlocale(locale.LC_ALL, 'English_United States.1252')
 else:
@@ -31,6 +39,7 @@ _filename, _ = os.path.splitext(os.path.basename(sys.argv[0]))
 _DBNAME = _filename + '.db'
 _GRAPH_NAME = _filename + '.gv'
 _JOBS = {}
+
 
 @contextmanager
 def _connect(dbfile, cache_size=100000, temp_store=2):
@@ -54,7 +63,7 @@ def _delayed_keyboard_interrupts():
     signal_received = False 
     def handler(sig, frame):
         signal_received = (sig, frame) 
-        logging.debug('SIGINT received. Delaying KeyboardInterrupt.')
+        logger.debug('SIGINT received. Delaying KeyboardInterrupt.')
     old_handler = signal.signal(signal.SIGINT, handler)
 
     try:
@@ -363,8 +372,7 @@ def run():
             delete_after(mt, paths)
 
         jobs_to_do = find_jobs_to_do(jobs)
-        print(f"Starting Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        print(f'To Create: {[j["output"] for j in jobs_to_do]}')
+        logger.info(f'To Create: {[j["output"] for j in jobs_to_do]}')
         while jobs_to_do:
             cnt = 0
             for i, job in enumerate(jobs_to_do):
@@ -372,8 +380,8 @@ def run():
                     try:
                         _execute(c, job)
                     except Exception as e:
-                        print('Failed: ', job['output'])
-                        print(f"{type(e).__name__}: {e}")
+                        logger.error(f"Failed: {job['output']}")
+                        logger.error(f"{type(e).__name__}: {e}")
                         try:
                             # TODO: Sometimes "database locked" error is raised
                             # but drops the table anyway. No idea why.
@@ -382,18 +390,17 @@ def run():
                         except Exception:
                             pass
 
-                        print('Unfinished: ', [job['output'] for job in jobs_to_do])
+                        logger.info(f"Unfinished: {[job['output'] for job in jobs_to_do]}")
                         return jobs_to_do
-                    tm = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    print(f"{job['cmd']}: {job['output']} at {tm}")
+                    logger.info(f"{job['cmd']}: {job['output']}")
                     del jobs_to_do[i]
                     cnt += 1
             if cnt == 0:
                 for j in jobs_to_do:
-                    print(f'Unfinished: {j["output"]}')
+                    logger.warning(f'Unfinished: {j["output"]}')
                     for t in j['inputs']:
                         if t not in c.get_tables():
-                            print(f'Table not found: {t}')
+                            logger.warning(f'Table not found: {t}')
                 return jobs_to_do
 
 

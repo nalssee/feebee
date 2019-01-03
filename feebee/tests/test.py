@@ -112,9 +112,6 @@ def add1(rs, col):
     return rs[0][col] + 1
 
 
-def longtake(r):
-    time.sleep(10)
-
 class TestProcess(unittest.TestCase):
     def test_example1(self):
         with fb1._connect('test.db') as c:
@@ -255,13 +252,6 @@ class TestProcess(unittest.TestCase):
         )
         jobs = fb.run()
         self.assertEqual([j['output'] for j in jobs], ['orders1'])
-
-    def test_error3(self):
-        fb.register(
-            _temp = fb.map(longtake, 'orders')
-        )
-        fb.run()
-
 
 
 if __name__ == "__main__":
