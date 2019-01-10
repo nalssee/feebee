@@ -19,6 +19,8 @@ import pandas as pd
 from sas7bdat import SAS7BDAT
 from graphviz import Digraph
 
+from pathos.multiprocessing import ProcessingPool as Pool
+
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -89,6 +91,9 @@ class _Connection:
         self._cursor.execute(f'PRAGMA cache_size={cache_size}')
         self._cursor.execute(f'PRAGMA temp_store={temp_store}')
         self._cursor.execute('PRAGMA journal_mode=OFF')
+        # other considerable options
+        # self._cursor.execute('PRAGMA mmap_size=268435456')
+        # self._cursor.execute('PRAGMA synchronous = 0')
 
     def fetch(self, tname, where=None, by=None):
         query = f'select * from {tname}'
@@ -113,11 +118,10 @@ class _Connection:
             raise ValueError("No row to insert")
 
         cols = list(r0)
-        n = len(cols)
 
         self._cursor.execute(_create_statement(name, cols))
-        istmt = _insert_statement(name, n)
-        self._cursor.executemany(istmt, (list(r.values()) for r in rs if isinstance(r, dict)))
+        istmt = _insert_statement(name, r0)
+        self._cursor.executemany(istmt, rs) 
 
     def load(self, filename, name=None, encoding='utf-8', fn=None):
         if isinstance(filename, str):
@@ -210,18 +214,35 @@ def _execute(c, job):
         c.load(job['file'], job['output'], job['encoding'], job['fn'])
     elif cmd == 'map':
         if job['parallel']:
-            with ProcessPoolExecutor(max_workers=psutil.cpu_count(logical=False)) as exe:
-                cnksize = job['parallel'] if isinstance(job['parallel'], int) else 1
-                if job['arg']:
-                    seq = exe.map(job['fn'],
-                                  c.fetch(job['inputs'][0], job['where'], job['by']),
-                                  repeat(job['arg']),
-                                  chunksize=cnksize)
-                else:
-                    seq = exe.map(job['fn'],
-                                  c.fetch(job['inputs'][0], job['where'], job['by']),
-                                  chunksize=cnksize)
-                c.insert(flatten(seq), job['output'])
+            exe = Pool(2)
+            cnksize = job['parallel'] if isinstance(job['parallel'], int) else 1
+            if job['arg']:
+                seq = exe.map(job['fn'],
+                                c.fetch(job['inputs'][0], job['where'], job['by']),
+                                repeat(job['arg']),
+                                chunksize=cnksize)
+            else:
+                seq = exe.map(job['fn'],
+                                c.fetch(job['inputs'][0], job['where'], job['by']),
+                                chunksize=cnksize)
+            c.insert(flatten(seq), job['output'])
+
+
+            # with ProcessPoolExecutor(max_workers=psutil.cpu_count(logical=False)) as exe:
+            #     cnksize = job['parallel'] if isinstance(job['parallel'], int) else 1
+            #     if job['arg']:
+            #         seq = exe.map(job['fn'],
+            #                       c.fetch(job['inputs'][0], job['where'], job['by']),
+            #                       repeat(job['arg']),
+            #                       chunksize=cnksize)
+            #     else:
+            #         seq = exe.map(job['fn'],
+            #                       c.fetch(job['inputs'][0], job['where'], job['by']),
+            #                       chunksize=cnksize)
+            #         print('yeah')
+            #     c.insert(flatten(seq), job['output'])
+
+
         else:
             seq = genfn(c, job['fn'], job['inputs'][0], job['where'], job['by'], job['arg'])
             c.insert(seq, job['output'])
@@ -378,6 +399,7 @@ def run():
             for i, job in enumerate(jobs_to_do):
                 if is_doable(job):
                     try:
+                        logger.info(f"processing {job['cmd']}: {job['output']}")
                         _execute(c, job)
                     except Exception as e:
                         logger.error(f"Failed: {job['output']}")
@@ -392,7 +414,6 @@ def run():
 
                         logger.info(f"Unfinished: {[job['output'] for job in jobs_to_do]}")
                         return jobs_to_do
-                    logger.info(f"{job['cmd']}: {job['output']}")
                     del jobs_to_do[i]
                     cnt += 1
             if cnt == 0:
@@ -479,10 +500,10 @@ def _create_statement(name, colnames):
     return "create table if not exists %s (%s)" % (name, schema)
 
 
-def _insert_statement(name, ncol):
-    "insert into foo values (?, ?, ?, ...)"
-    qmarks = ', '.join(['?'] * ncol)
-    return "insert into %s values (%s)" % (name, qmarks)
+def _insert_statement(name, d):
+    "insert into foo values (:a, :b, :c, ...)"
+    keycols = ', '.join(":" + c for c in d) 
+    return "insert into %s values (%s)" % (name, keycols)
 
 
 def _read_csv(filename, encoding='utf-8'):

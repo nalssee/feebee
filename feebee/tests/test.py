@@ -100,7 +100,9 @@ def isnum(*xs):
 def errornous1(rs):
     r = rs[0]
     yield r
+    del r['customerid']
     r['x'] = 10
+    # Although the number of columns is the same, it raises exception
     yield r
 
 def errornous2(r):
@@ -227,7 +229,6 @@ class TestProcess(unittest.TestCase):
 
             self.assertEqual(len(xs) * 2, len(xs2))
 
-
     def test_error1(self):
         with fb1._connect('test.db') as c:
             c.drop('orders')
@@ -238,7 +239,6 @@ class TestProcess(unittest.TestCase):
             orders1=fb.map(errornous1, 'orders', by='*')
         )
         jobs = fb.run()
-
         self.assertEqual([j['output'] for j in jobs], ['orders1'])
 
     def test_error2(self):
@@ -253,6 +253,30 @@ class TestProcess(unittest.TestCase):
         jobs = fb.run()
         self.assertEqual([j['output'] for j in jobs], ['orders1'])
 
+bar = False
+
+def foo(r, arg):
+    print(arg(3))
+    return r 
+
+class TestParallel(unittest.TestCase):
+    def test_example1(self):
+        with fb1._connect('test.db') as c:
+            c.drop('_foo')
+
+        global bar 
+        bar = lambda x: x 
+        fb.register(
+            orders = fb.load('orders.csv'),
+            _foo = fb.map(lambda r: r, 'orders', where=lambda r: r['customerid'] > 80, 
+                          parallel=2),
+        )
+    
+        fb.run()
+        with fb1._connect('test.db') as c:
+            for r in c.fetch('_foo'):
+                print(r)
+   
 
 if __name__ == "__main__":
     unittest.main()
