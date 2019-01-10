@@ -128,7 +128,7 @@ class TestProcess(unittest.TestCase):
                 data='orders'
             ),
 
-            orders2 = fb.map(fn=sumup, data='orders1', by='yyyymm', parallel=True),
+            orders2 = fb.map(fn=sumup, data='orders1', by='yyyymm'),
             orders3 = fb.map(fn=cnt, data='orders2', by='*'),
 
             orders4 = fb.join(
@@ -161,7 +161,7 @@ class TestProcess(unittest.TestCase):
             customers = fb.load(file='customers.csv'),
             customers1 = fb.map(bigmarket, 'customers', by='Country', arg=5),
             # 2 is a chunksize, default is 1
-            customers2 = fb.map(bigmarket1, 'customers', by='Country', arg=5, parallel=2)
+            customers2 = fb.map(bigmarket1, 'customers', by='Country', arg=5)
         )
         fb.run()
 
@@ -276,6 +276,23 @@ class TestParallel(unittest.TestCase):
         with fb1._connect('test.db') as c:
             for r in c.fetch('_foo'):
                 print(r)
+
+
+class TestLoad(unittest.TestCase):
+    def test_direct_import(self):
+        with fb1._connect('test.db') as c:
+            for t in c.get_tables():
+                c.drop(t)
+
+        fb.register(orders=fb.load('orders.csv'))
+        fb.run()
+
+        with fb1._connect('test.db') as c:
+            for i, r in enumerate(c.fetch('orders'), 1):
+                print(i, r)           
+
+        
+       
    
 
 if __name__ == "__main__":

@@ -36,11 +36,13 @@ else:
 
 
 WORKSPACE = ''
-_EMPTY = ''
 _filename, _ = os.path.splitext(os.path.basename(sys.argv[0]))
 _DBNAME = _filename + '.db'
 _GRAPH_NAME = _filename + '.gv'
 _JOBS = {}
+_TOO_MANY_ROWS = 10_000_000
+# folder name (in workspace) for temporary databases for parallel work 
+_TEMP = "_temp"
 
 
 @contextmanager
@@ -123,20 +125,21 @@ class _Connection:
         istmt = _insert_statement(name, r0)
         self._cursor.executemany(istmt, rs) 
 
-    def load(self, filename, name=None, encoding='utf-8', fn=None):
+    def load(self, filename, name, delimiter=',', quotechar='"', 
+             encoding='utf-8', fn=None):
         if isinstance(filename, str):
-            fname, ext = os.path.splitext(filename)
-
-            if ext == '.csv':
-                seq = _read_csv(filename, encoding)
-            elif ext == '.xlsx':
+            _, ext = os.path.splitext(filename)
+            if ext.lower() == '.csv':
+                seq = _read_csv(filename, delimiter=delimiter, quotechar=quotechar, 
+                                encoding=encoding)
+            elif ext.lower() == '.xlsx':
                 seq = _read_excel(filename)
-            elif ext == '.sas7bdat':
+            elif ext.lower() == '.sas7bdat':
                 seq = _read_sas(filename)
             else:
                 raise ValueError('Unknown file extension', ext)
-            name = name or fname
         else:
+            # iterator
             seq = filename
 
         if fn:
@@ -186,6 +189,9 @@ class _Connection:
 
     def _cols(self, query):
         return [c[0] for c in self._cursor.execute(query).description]
+    
+    def _size(self, table):
+        pass
 
 
 def _dict_factory(cursor, row):
@@ -193,6 +199,49 @@ def _dict_factory(cursor, row):
     for idx, col in enumerate(cursor.description):
         d[col[0]] = row[idx]
     return d
+
+# _split_table(c, itable, temp_dbfiles, job['by'])
+# exe.map(_make_proc(temp_dbfile, job), temp_dbfiles, repeat(job))
+# _join_table(c, itable, temp_dbfiles)
+
+ 
+#  ROWID, OID, or _ROWID_
+def _split_table(c, itable, temp_dbfiles, tsize, by):
+    ttable = 'temp' + _random_string(10)
+    c._cursor.execute(f"create table {ttable} as select * from {itable} order by {by}")
+    
+    
+
+
+    tdir = os.path.join(WORKSPACE, _TEMP)
+    if not os.path.exists(tdir):
+        os.makedirs(tdir)
+    dbfile = os.path.join(tdir, tem)
+    cuts = []
+    if by:
+        by = _listify(by)
+        c.fetch(itable, )
+
+
+    else:
+
+        chunk = tsize / len(temp_dbfiles)
+        cuts = [i * chunk for i in range(len(temp_dbfiles))]  + [tsize]
+        scopes = [(a, b) for a, b in zip(cuts, cuts[1:])]
+
+
+    for fname in temp_dbfiles:
+        alias = 'db' + _random_string(10)
+        c._cursor.execute(f'ATTACH DATABASE {} as {alias}')
+
+
+
+def _join_table(c, itable, temp_dbfiles):
+    pass
+
+def _make_proc(temp_dbfile, job):
+    with _connect()
+    pass
 
 
 def _execute(c, job):
@@ -211,40 +260,26 @@ def _execute(c, job):
 
     cmd = job['cmd']
     if cmd == 'load':
-        c.load(job['file'], job['output'], job['encoding'], job['fn'])
+        c.load(job['file'], job['output'], delimiter=job['delimiter'],
+               quotechar=job['quotechar'], encoding=job['encoding'], fn=job['fn'])
     elif cmd == 'map':
-        if job['parallel']:
-            exe = Pool(2)
-            cnksize = job['parallel'] if isinstance(job['parallel'], int) else 1
-            if job['arg']:
-                seq = exe.map(job['fn'],
-                                c.fetch(job['inputs'][0], job['where'], job['by']),
-                                repeat(job['arg']),
-                                chunksize=cnksize)
-            else:
-                seq = exe.map(job['fn'],
-                                c.fetch(job['inputs'][0], job['where'], job['by']),
-                                chunksize=cnksize)
-            c.insert(flatten(seq), job['output'])
+        itable = job['inputs'][0]
+        max_workers = psutil.cpu_count(logical=False)
 
+        if job['by'] and max_workers > 1:
+            # Rather expensive 
+            tsize = c._size(itable) 
+        # condition for parallel work
+        if job['by'] and max_workers > 1 and tsize > _TOO_MANY_ROWS: 
+            temp_dbfiles = [_random_string(10) for _ in range(max_workers)]
 
-            # with ProcessPoolExecutor(max_workers=psutil.cpu_count(logical=False)) as exe:
-            #     cnksize = job['parallel'] if isinstance(job['parallel'], int) else 1
-            #     if job['arg']:
-            #         seq = exe.map(job['fn'],
-            #                       c.fetch(job['inputs'][0], job['where'], job['by']),
-            #                       repeat(job['arg']),
-            #                       chunksize=cnksize)
-            #     else:
-            #         seq = exe.map(job['fn'],
-            #                       c.fetch(job['inputs'][0], job['where'], job['by']),
-            #                       chunksize=cnksize)
-            #         print('yeah')
-            #     c.insert(flatten(seq), job['output'])
-
-
+            exe = Pool(max_workers)
+            _split_table(c, itable, temp_dbfiles, tsize, job['by'])
+            exe.map(_make_proc(temp_dbfile, job), temp_dbfiles, repeat(job))
+            _join_table(c, itable, temp_dbfiles)
         else:
-            seq = genfn(c, job['fn'], job['inputs'][0], job['where'], job['by'], job['arg'])
+            seq = genfn(c, job['fn'], job['inputs'][0], 
+                        job['where'], job['by'], job['arg'])
             c.insert(seq, job['output'])
 
     elif cmd == 'join':
@@ -257,10 +292,12 @@ def _execute(c, job):
         c.insert(gen(), job['output'])
 
 
-def load(file=None, fn=None, encoding='utf-8'):
+def load(file=None, fn=None, delimiter=",", quotechar='"', encoding='utf-8'):
     return {'cmd': 'load',
             'file': file,
             'fn': fn,
+            'delimiter': delimiter,
+            'quotechar': quotechar,
             'encoding': encoding,
             'inputs': []}
 
@@ -506,30 +543,15 @@ def _insert_statement(name, d):
     return "insert into %s values (%s)" % (name, keycols)
 
 
-def _read_csv(filename, encoding='utf-8'):
-    def is_empty_line(line):
-        return [x for x in line if x.strip() != ""] == []
-
+def _read_csv(filename, delimiter=',', quotechar='"', encoding='utf-8'):
     with open(os.path.join(WORKSPACE, filename), encoding=encoding) as f:
-        first_line = f.readline()[:-1]
-        columns = _listify(first_line)
-        ncol = len(columns)
-
-        # NULL byte error handling
-        reader = csv.reader(x.replace('\0', _EMPTY) for x in f)
-        for line_no, line in enumerate(reader, 2):
-            if len(line) != ncol:
-                if is_empty_line(line):
-                    continue
-                raise ValueError(f"Invalid Line at {line_no}: {line}")
-            yield {k: v for k, v in zip(columns, line)}
+        yield from csv.DictReader(f, delimiter=delimiter, quotechar=quotechar)
 
 
 def _read_sas(filename):
     filename = os.path.join(WORKSPACE, filename)
     with SAS7BDAT(filename) as f:
         reader = f.readlines()
-        # lower case
         header = next(reader)
         for line in reader:
             yield {k: v for k, v in zip(header, line)}

@@ -1,7 +1,7 @@
 from setuptools import setup
 
 setup(name='feebee',
-      version='0.1.24',
+      version='0.2',
       description='datawork tools',
       url='https://github.com/nalssee/feebee.git',
       author='nalssee',
@@ -14,6 +14,7 @@ setup(name='feebee',
           'sas7bdat==2.0.7',
           'psutil==5.4.3',
           'graphviz==0.8.2',
+          'pathos==0.2.2.1',
           'pandas'
       ],
       zip_safe=False)
