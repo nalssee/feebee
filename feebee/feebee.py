@@ -192,7 +192,8 @@ class _Connection:
         return [c[0] for c in self._cursor.execute(query).description]
     
     def _size(self, table):
-        pass
+        self._cursor.execute(f"select count(*) from {table}")
+        return self._cursor.fetchone()
 
 
 def _dict_factory(cursor, row):
@@ -200,36 +201,6 @@ def _dict_factory(cursor, row):
     for idx, col in enumerate(cursor.description):
         d[col[0]] = row[idx]
     return d
-
-# _split_table(c, itable, temp_dbfiles, job['by'])
-# exe.map(_make_proc(temp_dbfile, job), temp_dbfiles, repeat(job))
-# _join_table(c, itable, temp_dbfiles)
-
- 
-#  ROWID, OID, or _ROWID_
-def _split_table(c, itable, temp_dbfiles, tsize, by):
-    # make the first copy of ttable 
-    with _connect(tdb1) as c1:
-        pass 
-
-   
-    # 
-    c._cursor.execute(f"create table {ttable} as select *, {'||'.join(_lisity(by))} as {tcol} from {itable} order by {by}") 
-    c._cursor.execute(f"create index {idxtable} on {ttable}({tcol})")
-
-
-    tcon = "con" + _random_string(10)
-    c._cursor.execute(f"attach database '{tdb1}' as {tcon}")
-    c._cursor.execute(f"create table {tcon}.{ttable} as select * from {ttable}") 
-    c._cursor.execute(f"detach database {tcon}")
-    with _connect(tdbname1) as c1:
-        c._cursor.execute(f"create index {idxtable} on {ttable}({tcol})")
-    
-    for tdb in temp_dbfiles[1:]:
-        copyfile(tdb1, os.path.join(tdr, tdb))
-
-    # find ranges 
-    return (ttable, tcol, cuts1)
 
 
 def _execute(c, job):
@@ -240,11 +211,11 @@ def _execute(c, job):
             else:
                 yield from x
 
-    def genfn(c, fn, input, where, by, arg=None):
+    def applyfn(fn, seq, arg):
         if arg:
-            yield from flatten(fn(rs, arg) for rs in c.fetch(input, where, by))
+            yield from flatten(fn(rs, arg) for rs in seq)
         else:
-            yield from flatten(fn(rs) for rs in c.fetch(input, where, by))
+            yield from flatten(fn(rs) for rs in seq) 
 
     cmd = job['cmd']
     if cmd == 'load':
@@ -252,13 +223,13 @@ def _execute(c, job):
                quotechar=job['quotechar'], encoding=job['encoding'], fn=job['fn'])
     elif cmd == 'map':
         itable = job['inputs'][0]
-        max_workers = psutil.cpu_count(logical=False)
 
-        if job['by'] and max_workers > 1:
+        if job['parallel'] and job['by']:
+            max_workers = psutil.cpu_count(logical=False)
             # Rather expensive 
             tsize = c._size(itable) 
         # condition for parallel work
-        if job['by'] and max_workers > 1 and tsize > _TOO_MANY_ROWS: 
+        if job['parallel'] and job['by'] and max_workers > 1 and tsize > _TOO_MANY_ROWS: 
             try:
                 tdir = os.path.join(WORKSPACE, _TEMP)
                 if not os.path.exists(tdir):
@@ -286,62 +257,63 @@ def _execute(c, job):
                     copyfile(dbfile[0], dbfile)
 
                 chunk = tsize / max_workers 
-                cuts = [get_nth_row(i * chunk) for i in range(1, max_workers)] 
+                def nth_tcol(n):
+                    with _connect(dbfiles[0]) as c1:
+                        c1._cursor.execute(f"select * from {ttable} where _rowid_ == {n} limit 1")
+                        return c1._cursor.fetchone()[tcol]
+
+                cuts = [nth_tcol(i * chunk) for i in range(1, max_workers)] 
                 cuts1 = [(None, cuts[0])] + [(c1, c2) for c1, c2 in zip(cuts, cuts[1:])] + [(cuts[-1], None)]
                 
-                cols = ', '.join(c._cols(f"select * from {itable}"))
-
+                # parallel work
                 exe = Pool(max_workers)
                 def _proc(dbfile, cut):
+                    def put_where(query, cut):
+                        a, b = cut 
+                        if a == None:
+                            return f"{query} {tcol} < {b}"
+                        elif b == None:
+                            return f"{query} {tcol} >= {a}"
+                        else:
+                            return f"{query} {tcol} >= {a} and {tcol} < {b}"
+                        
                     with _connect(dbfile) as c1:
-                        c1._cursor.execute(_create_statement(job['output'], cols))
-                        istmt = f"insert into {job['output']} values ({', '.join(':' + c for cols)})" 
-
                         def gen():
-                            sql = put_where(f'select * from {ttable}')
-                            for rs in groupby(c1._cursor().execute(sql), _build_keyfn(tcol)):
-                                yield 
-                                c1._cursor.executemany(istmt, rs)
+                            seq = c1._cursor.execute(put_where(f'select * from {ttable}', cut))
+                            wh = job['where']
+                            if wh:
+                                seq = (r for r in seq if wh(r))
 
-    def insert(self, rs, name):
-        try:
-            r0, rs = _peek_first(rs)
-        except StopIteration:
-            raise ValueError("No row to insert")
-
-        cols = list(r0)
-
-        self._cursor.execute(_create_statement(name, cols))
-        istmt = _insert_statement(name, r0)
-        self._cursor.executemany(istmt, rs) 
-
-        query = f'select * from {tname}'
-        if by and by.strip() != '*':
-            query += " order by " + by
-
-        rows = self._conn.cursor().execute(query)
-
-        if where:
-            rows = (r for r in rows if where(r))
-
-        if by:
-            gby = groupby(rows, _build_keyfn(by))
-            yield from (list(rs) for _, rs in gby)
-        else:
-            yield from rows
-
+                            for _, rs in groupby(seq, _build_keyfn(tcol)):
+                                rs1 = []
+                                for r in rs:
+                                    r.pop(tcol, None)
+                                    rs1.append(r)
+                                yield rs1
+                        seq = applyfn(job['fn'], gen(), job['arg'])
+                        c1.insert(ceq, job['output'])
 
                 exe.map(_proc, dbfiles, cuts1)
 
-                _join_table(c, itable, temp_dbfiles)
+                with _connect(dbfiles[0]) as c1:
+                    ocols = c1._cols(f"select * from {job['output']}")
+                
+                # collect tables from dbfiles 
+                c._cursor.execute(_create_statement(job['output'], ocols))
+                for dbfile in dbfiles:
+                    c._cursor.execute(f"attach database '{dbfile} as {tcon}")
+                    c._cursor.execute(f"insert into {job['output']} select * from {tcol}.{job['output']}")
+                    c._cursor.execute(f"detach database {tcon}")
 
             finally:
-                # delete all files in _TEMP directory 
-                pass
+                for dbfile in dbfiles:
+                    if os.path.exists(dbfile):
+                        os.remove(dbfile)
+        
         else:
-            seq = genfn(c, job['fn'], job['inputs'][0], 
-                        job['where'], job['by'], job['arg'])
-            c.insert(seq, job['output'])
+            seq = c.fetch(job['inputs'][0],job['where'], job['by'])
+            seq1 = applyfn(job['fn'], seq, job['arg'])
+            c.insert(seq1, job['output'])
 
     elif cmd == 'join':
         c.join(job['args'], job['output'])
@@ -363,7 +335,8 @@ def load(file=None, fn=None, delimiter=",", quotechar='"', encoding='utf-8'):
             'inputs': []}
 
 
-def map(fn=None, data=None, where=None, by=None, arg=None, parallel=False):
+# default parallel is True
+def map(fn=None, data=None, where=None, by=None, arg=None, parallel=True):
     return {
         'cmd': 'map',
         'fn': fn,
