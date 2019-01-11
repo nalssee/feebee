@@ -13,6 +13,7 @@ from datetime import datetime
 from contextlib import contextmanager
 from itertools import groupby, chain, repeat
 from concurrent.futures import ProcessPoolExecutor
+from shutil import copyfile
 
 import psutil
 import pandas as pd
@@ -207,41 +208,28 @@ def _dict_factory(cursor, row):
  
 #  ROWID, OID, or _ROWID_
 def _split_table(c, itable, temp_dbfiles, tsize, by):
-    ttable = 'temp' + _random_string(10)
-    c._cursor.execute(f"create table {ttable} as select * from {itable} order by {by}")
+    # make the first copy of ttable 
+    with _connect(tdb1) as c1:
+        pass 
+
+   
+    # 
+    c._cursor.execute(f"create table {ttable} as select *, {'||'.join(_lisity(by))} as {tcol} from {itable} order by {by}") 
+    c._cursor.execute(f"create index {idxtable} on {ttable}({tcol})")
+
+
+    tcon = "con" + _random_string(10)
+    c._cursor.execute(f"attach database '{tdb1}' as {tcon}")
+    c._cursor.execute(f"create table {tcon}.{ttable} as select * from {ttable}") 
+    c._cursor.execute(f"detach database {tcon}")
+    with _connect(tdbname1) as c1:
+        c._cursor.execute(f"create index {idxtable} on {ttable}({tcol})")
     
-    
+    for tdb in temp_dbfiles[1:]:
+        copyfile(tdb1, os.path.join(tdr, tdb))
 
-
-    tdir = os.path.join(WORKSPACE, _TEMP)
-    if not os.path.exists(tdir):
-        os.makedirs(tdir)
-    dbfile = os.path.join(tdir, tem)
-    cuts = []
-    if by:
-        by = _listify(by)
-        c.fetch(itable, )
-
-
-    else:
-
-        chunk = tsize / len(temp_dbfiles)
-        cuts = [i * chunk for i in range(len(temp_dbfiles))]  + [tsize]
-        scopes = [(a, b) for a, b in zip(cuts, cuts[1:])]
-
-
-    for fname in temp_dbfiles:
-        alias = 'db' + _random_string(10)
-        c._cursor.execute(f'ATTACH DATABASE {} as {alias}')
-
-
-
-def _join_table(c, itable, temp_dbfiles):
-    pass
-
-def _make_proc(temp_dbfile, job):
-    with _connect()
-    pass
+    # find ranges 
+    return (ttable, tcol, cuts1)
 
 
 def _execute(c, job):
@@ -271,12 +259,85 @@ def _execute(c, job):
             tsize = c._size(itable) 
         # condition for parallel work
         if job['by'] and max_workers > 1 and tsize > _TOO_MANY_ROWS: 
-            temp_dbfiles = [_random_string(10) for _ in range(max_workers)]
+            try:
+                tdir = os.path.join(WORKSPACE, _TEMP)
+                if not os.path.exists(tdir):
+                    os.makedirs(tdir)
 
-            exe = Pool(max_workers)
-            _split_table(c, itable, temp_dbfiles, tsize, job['by'])
-            exe.map(_make_proc(temp_dbfile, job), temp_dbfiles, repeat(job))
-            _join_table(c, itable, temp_dbfiles)
+                dbfiles = [os.path.join(tdir, _random_string(10)) for _ in range(max_workers)]
+
+                # split table 
+                with _connect(dbfiles[0]) as c1:
+                    pass 
+                tcon = 'con' + _random_string(10)
+                ttable = "tbl" + _random_string(10)
+                tcol = 'col' + _random_string(10)
+                idx = 'idx' + _random_string(10)
+
+                c._cursor.execute(f"attach database '{dbfiles[0]}' as {tcon}")
+                c._cursor.execute(f"""create table {tcon}.{ttable} as 
+                select *, {' || '.join(_listify(by))} as {tcol} from {itable} order by {by}
+                """) 
+                c._cursor.execute(f"detach database {tcon}")
+                with _connect(dbfiles[0]) as c1:
+                    c1._cursor.execute(f"create index {idx} on {ttable}({tcol})")
+                # copy files 
+                for dbfile in dbfiles[1:]:
+                    copyfile(dbfile[0], dbfile)
+
+                chunk = tsize / max_workers 
+                cuts = [get_nth_row(i * chunk) for i in range(1, max_workers)] 
+                cuts1 = [(None, cuts[0])] + [(c1, c2) for c1, c2 in zip(cuts, cuts[1:])] + [(cuts[-1], None)]
+                
+                cols = ', '.join(c._cols(f"select * from {itable}"))
+
+                exe = Pool(max_workers)
+                def _proc(dbfile, cut):
+                    with _connect(dbfile) as c1:
+                        c1._cursor.execute(_create_statement(job['output'], cols))
+                        istmt = f"insert into {job['output']} values ({', '.join(':' + c for cols)})" 
+
+                        def gen():
+                            sql = put_where(f'select * from {ttable}')
+                            for rs in groupby(c1._cursor().execute(sql), _build_keyfn(tcol)):
+                                yield 
+                                c1._cursor.executemany(istmt, rs)
+
+    def insert(self, rs, name):
+        try:
+            r0, rs = _peek_first(rs)
+        except StopIteration:
+            raise ValueError("No row to insert")
+
+        cols = list(r0)
+
+        self._cursor.execute(_create_statement(name, cols))
+        istmt = _insert_statement(name, r0)
+        self._cursor.executemany(istmt, rs) 
+
+        query = f'select * from {tname}'
+        if by and by.strip() != '*':
+            query += " order by " + by
+
+        rows = self._conn.cursor().execute(query)
+
+        if where:
+            rows = (r for r in rows if where(r))
+
+        if by:
+            gby = groupby(rows, _build_keyfn(by))
+            yield from (list(rs) for _, rs in gby)
+        else:
+            yield from rows
+
+
+                exe.map(_proc, dbfiles, cuts1)
+
+                _join_table(c, itable, temp_dbfiles)
+
+            finally:
+                # delete all files in _TEMP directory 
+                pass
         else:
             seq = genfn(c, job['fn'], job['inputs'][0], 
                         job['where'], job['by'], job['arg'])
