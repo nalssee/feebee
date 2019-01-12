@@ -89,7 +89,6 @@ class _Connection:
 
         self._conn = sqlite3.connect(dbfile)
         self._conn.row_factory = _dict_factory
-
         self._cursor = self._conn.cursor()
         self._cursor.execute(f'PRAGMA cache_size={cache_size}')
         self._cursor.execute(f'PRAGMA temp_store={temp_store}')
@@ -192,8 +191,8 @@ class _Connection:
         return [c[0] for c in self._cursor.execute(query).description]
     
     def _size(self, table):
-        self._cursor.execute(f"select count(*) from {table}")
-        return self._cursor.fetchone()
+        self._cursor.execute(f"select count(*) as c from {table}")
+        return self._cursor.fetchone()['c']
 
 
 def _dict_factory(cursor, row):
@@ -223,7 +222,6 @@ def _execute(c, job):
                quotechar=job['quotechar'], encoding=job['encoding'], fn=job['fn'])
     elif cmd == 'map':
         itable = job['inputs'][0]
-
         if job['parallel'] and job['by']:
             max_workers = psutil.cpu_count(logical=False)
             # Rather expensive 
@@ -235,26 +233,28 @@ def _execute(c, job):
                 if not os.path.exists(tdir):
                     os.makedirs(tdir)
 
-                dbfiles = [os.path.join(tdir, _random_string(10)) for _ in range(max_workers)]
-
+                dbfiles = [os.path.join(_TEMP, _random_string(10)) for _ in range(max_workers)]
+                # dbfiles = [_random_string(10) for _ in range(max_workers)]
                 # split table 
-                with _connect(dbfiles[0]) as c1:
-                    pass 
                 tcon = 'con' + _random_string(10)
                 ttable = "tbl" + _random_string(10)
                 tcol = 'col' + _random_string(10)
                 idx = 'idx' + _random_string(10)
-
                 c._cursor.execute(f"attach database '{dbfiles[0]}' as {tcon}")
+                
                 c._cursor.execute(f"""create table {tcon}.{ttable} as 
-                select *, {' || '.join(_listify(by))} as {tcol} from {itable} order by {by}
-                """) 
+                select *, cast({' || '.join(_listify(job['by']))}  as TEXT) as {tcol} 
+                from {itable} order by {job['by']}
+                """)    
+                c._conn.commit()
                 c._cursor.execute(f"detach database {tcon}")
+
+                # c._cursor.execute(f"detach database {tcon}")
                 with _connect(dbfiles[0]) as c1:
                     c1._cursor.execute(f"create index {idx} on {ttable}({tcol})")
                 # copy files 
                 for dbfile in dbfiles[1:]:
-                    copyfile(dbfile[0], dbfile)
+                    copyfile(dbfiles[0], dbfile)
 
                 chunk = tsize / max_workers 
                 def nth_tcol(n):
@@ -271,15 +271,15 @@ def _execute(c, job):
                     def put_where(query, cut):
                         a, b = cut 
                         if a == None:
-                            return f"{query} {tcol} < {b}"
+                            return f"{query} where {tcol} < '{b}'"
                         elif b == None:
-                            return f"{query} {tcol} >= {a}"
+                            return f"{query} where {tcol} >= '{a}'"
                         else:
-                            return f"{query} {tcol} >= {a} and {tcol} < {b}"
+                            return f"{query} where {tcol} >= '{a}' and {tcol} < '{b}'"
                         
                     with _connect(dbfile) as c1:
                         def gen():
-                            seq = c1._cursor.execute(put_where(f'select * from {ttable}', cut))
+                            seq = c1._conn.cursor().execute(put_where(f'select * from {ttable}', cut))
                             wh = job['where']
                             if wh:
                                 seq = (r for r in seq if wh(r))
@@ -291,25 +291,26 @@ def _execute(c, job):
                                     rs1.append(r)
                                 yield rs1
                         seq = applyfn(job['fn'], gen(), job['arg'])
-                        c1.insert(ceq, job['output'])
+                        c1.insert(seq, job['output'])
 
                 exe.map(_proc, dbfiles, cuts1)
 
                 with _connect(dbfiles[0]) as c1:
                     ocols = c1._cols(f"select * from {job['output']}")
-                
                 # collect tables from dbfiles 
                 c._cursor.execute(_create_statement(job['output'], ocols))
                 for dbfile in dbfiles:
-                    c._cursor.execute(f"attach database '{dbfile} as {tcon}")
-                    c._cursor.execute(f"insert into {job['output']} select * from {tcol}.{job['output']}")
+                    c._cursor.execute(f"attach database '{dbfile}' as {tcon}")
+                    c._cursor.execute(f"insert into {job['output']} select * from {tcon}.{job['output']}")
+                    c._conn.commit()
                     c._cursor.execute(f"detach database {tcon}")
 
             finally:
-                for dbfile in dbfiles:
-                    if os.path.exists(dbfile):
-                        os.remove(dbfile)
-        
+                with _delayed_keyboard_interrupts():
+                    for dbfile in dbfiles:
+                        if os.path.exists(dbfile):
+                            os.remove(dbfile)
+
         else:
             seq = c.fetch(job['inputs'][0],job['where'], job['by'])
             seq1 = applyfn(job['fn'], seq, job['arg'])

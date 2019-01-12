@@ -253,23 +253,25 @@ class TestProcess(unittest.TestCase):
         jobs = fb.run()
         self.assertEqual([j['output'] for j in jobs], ['orders1'])
 
-bar = False
 
-def foo(r, arg):
-    print(arg(3))
-    return r 
+def add_yyyymm(r):
+    r['yyyymm'] = r['orderdate'][:7]
+    return r
+
 
 class TestParallel(unittest.TestCase):
     def test_example1(self):
-        with fb1._connect('test.db') as c:
-            c.drop('_foo')
+        fb1._TOO_MANY_ROWS = 10
 
-        global bar 
-        bar = lambda x: x 
+        with fb1._connect('test.db') as c:
+            c.drop('_foo, orders, orders1')
+
         fb.register(
             orders = fb.load('orders.csv'),
-            _foo = fb.map(lambda r: r, 'orders', where=lambda r: r['customerid'] > 80, 
-                          parallel=2),
+            orders1 = fb.map(add_yyyymm, 'orders'),
+            _foo = fb.map(lambda r: r, 'orders1', where=lambda r: r['customerid'] > 80, 
+                          by='yyyymm, shipperid'
+            ),
         )
     
         fb.run()
@@ -277,19 +279,23 @@ class TestParallel(unittest.TestCase):
             for r in c.fetch('_foo'):
                 print(r)
 
+    def test_example2(self):
+        with fb1._connect('fofie.db') as c:
+            pass
 
-class TestLoad(unittest.TestCase):
-    def test_direct_import(self):
-        with fb1._connect('test.db') as c:
-            for t in c.get_tables():
-                c.drop(t)
 
-        fb.register(orders=fb.load('orders.csv'))
-        fb.run()
+# class TestLoad(unittest.TestCase):
+#     def test_direct_import(self):
+#         with fb1._connect('test.db') as c:
+#             for t in c.get_tables():
+#                 c.drop(t)
 
-        with fb1._connect('test.db') as c:
-            for i, r in enumerate(c.fetch('orders'), 1):
-                print(i, r)           
+#         fb.register(orders=fb.load('orders.csv'))
+#         fb.run()
+
+#         with fb1._connect('test.db') as c:
+#             for i, r in enumerate(c.fetch('orders'), 1):
+#                 print(i, r)           
 
         
        
