@@ -12,10 +12,9 @@ import logging
 from datetime import datetime
 from contextlib import contextmanager
 from itertools import groupby, chain, repeat
-from concurrent.futures import ProcessPoolExecutor
 from shutil import copyfile
-
 import psutil
+
 import pandas as pd
 from sas7bdat import SAS7BDAT
 from graphviz import Digraph
@@ -44,6 +43,12 @@ _JOBS = {}
 _TOO_MANY_ROWS = 10_000_000
 # folder name (in workspace) for temporary databases for parallel work 
 _TEMP = "_temp"
+
+class FeebeeError(Exception):
+    pass
+
+class NoRowToInsert(FeebeeError):
+    pass
 
 
 @contextmanager
@@ -116,34 +121,36 @@ class _Connection:
     def insert(self, rs, name):
         try:
             r0, rs = _peek_first(rs)
-        except StopIteration:
-            raise ValueError("No row to insert")
+        except StopIteration as e:
+            raise NoRowToInsert from e
 
         cols = list(r0)
-
         self._cursor.execute(_create_statement(name, cols))
         istmt = _insert_statement(name, r0)
         self._cursor.executemany(istmt, rs) 
 
-    def load(self, filename, name, delimiter=',', quotechar='"', 
+    def load(self, filename, name, delimiter=None, quotechar='"', 
              encoding='utf-8', fn=None):
         if isinstance(filename, str):
             _, ext = os.path.splitext(filename)
-            if ext.lower() == '.csv':
-                seq = _read_csv(filename, delimiter=delimiter, quotechar=quotechar, 
-                                encoding=encoding)
-            elif ext.lower() == '.xlsx':
+            if ext.lower() == '.xlsx' or ext.lower() == ".xls":
                 seq = _read_excel(filename)
             elif ext.lower() == '.sas7bdat':
                 seq = _read_sas(filename)
+            elif ext.lower() == ".dta":
+                seq = _read_stata(filename)
             else:
-                raise ValueError('Unknown file extension', ext)
+                # default delimiter is ","
+                delimiter = delimiter or ("\t" if ext.lower() == ".tsv" else ",")
+                seq = _read_csv(filename, delimiter=delimiter, quotechar=quotechar, 
+                                encoding=encoding)
         else:
-            # iterator
+            # iterator, since you can pass an iterator
+            # functions of 'load' should be limited
             seq = filename
 
         if fn:
-            seq = (fn(r) for r in seq)
+            seq = flatten(fn(rs) for rs in seq) 
         self.insert(seq, name)
 
     def get_tables(self):
@@ -162,6 +169,8 @@ class _Connection:
             eqs = []
             for c0, c1 in zip(_listify(mcols0), _listify(mcols1)):
                 if c1:
+                    # allows expression such as 'col + 4' for 'c1', for example.
+                    # somewhat sneaky though
                     eqs.append(f't0.{c0} = t{i}.{c1}')
             join_clauses.append(f"left join {tname1} as t{i} on {' and '.join(eqs)}")
         jcs = ' '.join(join_clauses)
@@ -179,6 +188,8 @@ class _Connection:
         for tname, _, mcols in tinfos:
             mcols1 = [c for c in _listify(mcols) if c]
             ind_tname = tname + _random_string(10)
+            # allows expression such as 'col + 4' for indexing, for example.
+            # https://www.sqlite.org/expridx.html
             self._cursor.execute(f"create index {ind_tname} on {tname}({', '.join(mcols1)})")
 
         query = f"create table {name} as select {', '.join(allcols)} from {tname0} as t0 {jcs}"
@@ -202,14 +213,15 @@ def _dict_factory(cursor, row):
     return d
 
 
-def _execute(c, job):
-    def flatten(seq):
-        for x in seq:
-            if isinstance(x, dict):
-                yield x
-            else:
-                yield from x
+def flatten(seq):
+    for x in seq:
+        if isinstance(x, dict):
+            yield x
+        else:
+            yield from x
 
+
+def _execute(c, job):
     def applyfn(fn, seq, arg):
         if arg:
             yield from flatten(fn(rs, arg) for rs in seq)
@@ -227,7 +239,8 @@ def _execute(c, job):
             # Rather expensive 
             tsize = c._size(itable) 
         # condition for parallel work
-        if job['parallel'] and job['by'] and max_workers > 1 and tsize > _TOO_MANY_ROWS: 
+        if job['parallel'] and job['by'] and job['by'].strip() != '*' and\
+           max_workers > 1 and tsize > _TOO_MANY_ROWS: 
             try:
                 tdir = os.path.join(WORKSPACE, _TEMP)
                 if not os.path.exists(tdir):
@@ -249,59 +262,80 @@ def _execute(c, job):
                 c._conn.commit()
                 c._cursor.execute(f"detach database {tcon}")
 
-                # c._cursor.execute(f"detach database {tcon}")
                 with _connect(dbfiles[0]) as c1:
                     c1._cursor.execute(f"create index {idx} on {ttable}({tcol})")
-                # copy files 
-                for dbfile in dbfiles[1:]:
-                    copyfile(dbfiles[0], dbfile)
 
-                chunk = tsize / max_workers 
+                # copy files 
                 def nth_tcol(n):
                     with _connect(dbfiles[0]) as c1:
                         c1._cursor.execute(f"select * from {ttable} where _rowid_ == {n} limit 1")
                         return c1._cursor.fetchone()[tcol]
 
-                cuts = [nth_tcol(i * chunk) for i in range(1, max_workers)] 
-                cuts1 = [(None, cuts[0])] + [(c1, c2) for c1, c2 in zip(cuts, cuts[1:])] + [(cuts[-1], None)]
-                
-                # parallel work
-                exe = Pool(max_workers)
+                cuts = [nth_tcol(1)] + \
+                       [nth_tcol(int(i * tsize / max_workers)) for i in range(1, max_workers)] + \
+                       [nth_tcol(tsize)]
+
+                # build ranges. Be very careful 
+                cuts1 = [(c1, c2) for c1, c2 in zip(cuts, cuts[1:-1]) if c1 != c2] +\
+                        [(cuts[-2], False)]
+
+                dbfiles = dbfiles[0:len(cuts1)]
+                for dbfile in dbfiles[1:]:
+                    copyfile(dbfiles[0], dbfile)
+ 
+                # parallel work (not max_workers)
+                exe = Pool(len(dbfiles)) 
                 def _proc(dbfile, cut):
                     def put_where(query, cut):
                         a, b = cut 
-                        if a == None:
-                            return f"{query} where {tcol} < '{b}'"
-                        elif b == None:
+                        if b == False:
                             return f"{query} where {tcol} >= '{a}'"
                         else:
                             return f"{query} where {tcol} >= '{a}' and {tcol} < '{b}'"
                         
                     with _connect(dbfile) as c1:
                         def gen():
+                            # You should create a new cursor! Insertion takes place at the same time
+                            # see fetch
                             seq = c1._conn.cursor().execute(put_where(f'select * from {ttable}', cut))
                             wh = job['where']
                             if wh:
                                 seq = (r for r in seq if wh(r))
-
                             for _, rs in groupby(seq, _build_keyfn(tcol)):
                                 rs1 = []
                                 for r in rs:
                                     r.pop(tcol, None)
                                     rs1.append(r)
                                 yield rs1
+
                         seq = applyfn(job['fn'], gen(), job['arg'])
-                        c1.insert(seq, job['output'])
+                        try:
+                            c1.insert(seq, job['output'])
+                        except NoRowToInsert:
+                            # allow empty rows, it could happen
+                            pass
 
                 exe.map(_proc, dbfiles, cuts1)
 
-                with _connect(dbfiles[0]) as c1:
+                succeeded_dbfiles = []
+                for dbfile in dbfiles:
+                    with _connect(dbfile) as c1:
+                        if job['output'] in c1.get_tables():
+                            succeeded_dbfiles.append(dbfile)
+
+                if succeeded_dbfiles == []:
+                    raise NoRowToInsert
+
+                with _connect(succeeded_dbfiles[0]) as c1:
                     ocols = c1._cols(f"select * from {job['output']}")
+
                 # collect tables from dbfiles 
                 c._cursor.execute(_create_statement(job['output'], ocols))
-                for dbfile in dbfiles:
+                for dbfile in succeeded_dbfiles:
                     c._cursor.execute(f"attach database '{dbfile}' as {tcon}")
-                    c._cursor.execute(f"insert into {job['output']} select * from {tcon}.{job['output']}")
+                    c._cursor.execute(f"""
+                    insert into {job['output']} select * from {tcon}.{job['output']}
+                    """)
                     c._conn.commit()
                     c._cursor.execute(f"detach database {tcon}")
 
@@ -326,7 +360,7 @@ def _execute(c, job):
         c.insert(gen(), job['output'])
 
 
-def load(file=None, fn=None, delimiter=",", quotechar='"', encoding='utf-8'):
+def load(file=None, fn=None, delimiter=None, quotechar='"', encoding='utf-8'):
     return {'cmd': 'load',
             'file': file,
             'fn': fn,
@@ -465,6 +499,7 @@ def run():
             delete_after(mt, paths)
 
         jobs_to_do = find_jobs_to_do(jobs)
+        initial_jobs_to_do = list(jobs_to_do) 
         logger.info(f'To Create: {[j["output"] for j in jobs_to_do]}')
         while jobs_to_do:
             cnt = 0
@@ -485,16 +520,19 @@ def run():
                             pass
 
                         logger.info(f"Unfinished: {[job['output'] for job in jobs_to_do]}")
-                        return jobs_to_do
+                        return (initial_jobs_to_do, jobs_to_do)
                     del jobs_to_do[i]
                     cnt += 1
+            # No jobs can be done anymore
             if cnt == 0:
                 for j in jobs_to_do:
                     logger.warning(f'Unfinished: {j["output"]}')
                     for t in j['inputs']:
                         if t not in c.get_tables():
                             logger.warning(f'Table not found: {t}')
-                return jobs_to_do
+                return (initial_jobs_to_do, jobs_to_do)
+        # All jobs done well 
+        return (initial_jobs_to_do, jobs_to_do)
 
 
 def _random_string(nchars):
@@ -592,15 +630,22 @@ def _read_sas(filename):
             yield {k: v for k, v in zip(header, line)}
 
 
+def read_df(df):
+    cols = df.columns
+    for _, r in df.iterrows():
+        yield {k: v for k, v in zip(cols, ((str(r[c]) for c in cols)))}
+
 # this could be more complex but should it be?
 def _read_excel(filename):
-    def read_df(df):
-        cols = df.columns
-        for _, r in df.iterrows():
-            yield {k: v for k, v in zip(cols, ((str(r[c]) for c in cols)))}
-
     filename = os.path.join(WORKSPACE, filename)
     # it's OK. Excel files are small
     df = pd.read_excel(filename)
     yield from read_df(df)
 
+
+# raises a deprecation warning 
+def _read_stata(filename):
+    filename = os.path.join(WORKSPACE, filename)
+    chunk = 10_000
+    for xs in pd.read_stata(filename, chunksize=chunk):
+        yield from read_df(xs)

@@ -3,7 +3,7 @@ import sys
 import unittest
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
-import time
+import sqlite3
 
 TESTPATH = os.path.dirname(os.path.realpath(__file__))
 PYPATH = os.path.join(TESTPATH, '..', '..')
@@ -29,108 +29,314 @@ import feebee.feebee as fb1
 # 10250,34,4,1996-07-08,2
 # 10251,84,3,1996-07-08,1
 
-def sumup(rs):
-    r = rs[0]
-    r['norders'] = len(rs)
-    return r
-
-def bigmarket(rs, a):
-    if len(rs) > a:
-        yield from rs
-
-def bigmarket1(rs, a):
-    if len(rs) > a:
-        return rs
-    else:
-        return []
+def remdb():
+    if os.path.isfile('test.db'):
+        os.remove('test.db')
 
 
-def cnt(rs):
-    for i, r in enumerate(rs):
-        r['cnt'] = i
-        yield r
+def initialize():
+    remdb()
+    fb1._JOBS = {}
+    fb.run()
+        
+class TestLoading(unittest.TestCase):
+    def setUp(self):
+        initialize()
+        # make empty table
 
+    def test_dbfilename_created_as_script_name(self):
+        # fb.run in setUp created empty test.db
+        name, _ = os.path.splitext(os.path.basename(__file__))
+        self.assertIn(name + '.db', os.listdir())
 
-def orders_avg_nmonth(r):
-    r['nmonth'] = 3
-    try:
-        r['avg'] = round((r['norders'] + r['norders1'] + r['norders2']) / 3, 1)
-    except:
-        r['avg'] = ''
-    yield r
-
-    r['nmonth'] = 6
-    try:
-        r['avg'] = round((r['norders'] + r['norders1'] + r['norders2'] +  \
-                          r['norders3'] + r['norders4'] + r['norders5']) / 6, 1)
-    except:
-        r['avg'] = ''
-    yield r
-
-
-def add(**kwargs):
-    def fn(r):
-        for k, v in kwargs.items():
-            r[k] = v(r)
-        return r
-    return fn
-
-
-def dconv(date, infmt, outfmt=None, **size):
-    """Date arithmetic
-    Returns int if input(date) is int else str
-    """
-    outfmt = outfmt or infmt
-    if not size:
-        # Just convert the format
-        return datetime.strftime(datetime.strptime(str(date), infmt), outfmt)
-    d1 = datetime.strptime(str(date), infmt) + relativedelta(**size)
-    d2 = d1.strftime(outfmt)
-    return int(d2) if isinstance(date, int) else d2
-
-def isnum(*xs):
-    "Tests if x is numeric"
-    try:
-        for x in xs:
-            float(x)
-        return True
-    except (ValueError, TypeError):
-        return False
-
-def errornous1(rs):
-    r = rs[0]
-    yield r
-    del r['customerid']
-    r['x'] = 10
-    # Although the number of columns is the same, it raises exception
-    yield r
-
-def errornous2(r):
-    if r['customerid'] > 1000:
-        yield r
-
-
-def add1(rs, col):
-    return rs[0][col] + 1
-
-
-class TestProcess(unittest.TestCase):
-    def test_example1(self):
+    def test_loading_ordinary_csv(self):
+        fb.register(orders = fb.load('orders.csv'))
+        fb.run()
         with fb1._connect('test.db') as c:
-            c.drop('orders, customers')
+            self.assertEqual(len(list(c.fetch('orders'))), nlines_file('orders.csv') - 1)
 
-        fb1._JOBS = {}
+    # TODO: some of the other options like encoding must be tested
+    def test_loading_ordinary_tsv(self):
+        fb.register(markit = fb.load('markit.tsv'))
+        fb.run()
+        with fb1._connect('test.db') as c:
+            self.assertEqual(len(list(c.fetch('markit'))), nlines_file('markit.tsv') - 1)
+
+    def test_loading_semicolon_separated_file(self):
+        fb.register(orders1 = fb.load('orders1.txt', delimiter=";"))
+        fb.run()
+        with fb1._connect('test.db') as c:
+            self.assertEqual(len(list(c.fetch('orders1'))), nlines_file('orders1.txt') - 1)
+            with open('orders1.txt') as f:
+                self.assertEqual(f.readline()[:-1].split(";"),
+                                 c._cols('select * from orders1'))
+
+    def test_loading_excel_files(self):
         fb.register(
-            orders = fb.load(file='orders.csv'),
+            ff = fb.load('ff.xls'),
+            ff1 = fb.load('ff.xlsx'),
+        )
+        fb.run()
+        with fb1._connect('test.db') as c:
+            self.assertEqual(set(c.get_tables()), set(['ff', 'ff1']))
 
-            orders1 = fb.map(
-                fn=add(yyyymm=lambda r: dconv(r['orderdate'], '%Y-%m-%d', '%Y-%m')),
-                data='orders'
+    def test_loading_sas_file(self):
+        fb.register(
+            ff5 = fb.load('ff5_ew_mine.sas7bdat'),
+        )
+        fb.run()
+        with fb1._connect('test.db') as c:
+            self.assertEqual(set(c.get_tables()), set(['ff5']))
+
+    def test_loading_stata_file(self):
+        fb.register(
+            crime = fb.load('crime.dta'),
+        )
+        fb.run()
+        with fb1._connect('test.db') as c:
+            self.assertEqual(len(list(c.fetch('crime'))), 2725)
+
+    def test_loading_seq(self):
+        def add3(r):
+            r['b'] = r['a'] + 3
+            return r
+
+        fb.register(
+            foo = fb.load(({'a': i} for i in range(10)), fn=add3)
+        )
+        fb.run()
+        with fb1._connect('test.db') as c:
+            self.assertEqual(c._cols("select * from foo"), ['a', 'b'])
+ 
+    def tearDown(self):
+        if os.path.isfile('test.db'):
+            os.remove('test.db')
+
+class TestMap(unittest.TestCase):
+    def setUp(self):
+        initialize()
+        fb.register(
+            orders=fb.load('orders.csv'),
+            customers=fb.load('customers.csv'),
+        )
+        fb.run()
+
+    def test_append_yyyy_yyyymm_columns(self):
+        fb.register(
+            orders1 = fb.map(add(yyyy=lambda r: r['orderdate'][:4], 
+                                 yyyymm=lambda r: r['orderdate'][:7]),
+                             'orders',
+                             where=lambda r: r['orderdate'] > '1996-xx-xx'),
+        )
+        fb.run()
+        with fb1._connect('test.db') as c:
+            self.assertEqual(len(c._cols('select * from orders')) + 2, 
+                             len(c._cols('select * from orders1')))
+            self.assertEqual(sum(1 for _ in c.fetch('orders1')), 44)
+
+    def test_group_by(self):
+        def bigmarket(rs, a):
+            if len(rs) > a:
+                yield from rs
+
+        def bigmarket1(rs, a):
+            if len(rs) > a:
+                return rs
+            else:
+                return []
+
+        fb.register(
+            # you can either pass a function that returns 
+            # a dictionary (row) or  a list of dictionaries 
+            # or pass a generator that yields dictionaries
+            customers1 = fb.map(bigmarket, 'customers', by='Country', arg=5),
+            customers2 = fb.map(bigmarket1, 'customers', by='Country', arg=5)
+        )
+        fb.run()
+
+        with fb1._connect('test.db') as c:
+            self.assertEqual(list(c.fetch('customers1')), list(c.fetch('customers2')))
+    
+
+    def test_insert_empty_rows(self):
+        fb.register(
+            orders1 = fb.map(lambda r: r, 'orders', where=lambda r: r['shipperid'] == 10)
+        )
+        fb.run()
+        with self.assertRaises(sqlite3.OperationalError):
+            with fb1._connect('test.db') as c:
+                list(c.fetch('orders1'))
+
+    def tearDown(self):
+        remdb()
+
+
+class TestMapErrornousInsertion(unittest.TestCase):
+    def setUp(self):
+        initialize()
+        fb.register(
+            orders=fb.load(file='orders.csv'),
+        )
+        fb.run() 
+
+    def test_insert_differently_named_rows(self):
+        def errornous1(rs):
+            r = rs[0]
+            yield r
+            del r['customerid']
+            r['x'] = 10
+            yield r
+
+        fb.register(orders1=fb.map(errornous1, 'orders', by='*'))
+        fb.run()
+        # orders1 is not created
+        with self.assertRaises(sqlite3.OperationalError):
+            with fb1._connect('test.db') as c:
+                list(c.fetch('orders1'))
+
+    def test_insert_1col_deleted(self):
+        def errornous1(rs):
+            r = rs[0]
+            yield r
+            del r['customerid']
+            yield r
+
+        fb.register(orders1=fb.map(errornous1, 'orders', by='*'))
+        fb.run()
+        # orders1 is not created
+        with self.assertRaises(sqlite3.OperationalError):
+         with fb1._connect('test.db') as c:
+            for r in c.fetch('orders1'):
+                print(r)
+            list(c.fetch('orders1'))
+
+
+    def test_insert_1col_added(self):
+        def errornous1(rs):
+            r = rs[0]
+            yield r
+            # added 'xxx' col is ignored
+            r['xxx'] = 10
+            yield r
+
+        fb.register(orders1=fb.map(errornous1, 'orders', by='*'))
+        fb.run()
+        with fb1._connect('test.db') as c:
+            x1, x2 = list(c.fetch('orders1'))
+            self.assertEqual(x1, x2)
+
+    def tearDown(self):
+        remdb()
+
+
+
+class TestUnion(unittest.TestCase):
+    def setUp(self):
+        initialize()
+
+
+    def test_simple_union(self):
+        fb.register(
+            orders = fb.load('orders.csv'),
+            orders1=fb.map(lambda r: r, 'orders'),
+            orders2=fb.union('orders, orders1'),
+            # the following is also fine
+            # orders2=fb.union(['orders', 'orders1'])
+        )
+        fb.run()
+
+        with fb1._connect('test.db') as c:
+            self.assertEqual(len(list(c.fetch('orders'))) * 2, len(list(c.fetch('orders2'))))
+
+    def tearDown(self):
+        remdb()
+
+
+class TestGraph(unittest.TestCase):
+    def setUp(self):
+        initialize()
+
+    def test_graph_dot_gv_file(self):
+        def add_yyyy(r):
+            r['yyyy'] = r['orderdate'][0:4]
+            return r
+        
+        def count(rs):
+            rs[0]['n'] = len(rs)
+            yield rs[0]
+
+        fb.register(
+            orders = fb.load('orders.csv', fn=add_yyyy),
+            customers = fb.load('customers.csv'),
+            # append customer's nationality
+            orders1 = fb.join(
+                ['orders', '*', 'customerid'],
+                ['customers', 'Country', 'customerid'],
             ),
+            # yearly number of orders by country 
+            orders2 = fb.map(count, 'orders1', by='yyyy, Country'),
+        )
+        saved_jobs = fb1._JOBS 
+        fb.run()
+        with open('test.gv') as f:
+            graph = f.read()
+            for j in saved_jobs:
+                self.assertTrue(j in graph)
 
+        with fb1._connect('test.db') as c:
+            c.drop('customers') 
+
+        fb1._JOBS = saved_jobs
+        # rerun 
+        jobs_to_do, jobs_undone = fb.run()
+        self.assertEqual(set(j['output'] for j in jobs_to_do), 
+                         set(['customers', 'orders1', 'orders2']))
+        self.assertEqual(jobs_undone, [])
+
+    def tearDown(self):
+        remdb()
+
+
+# Test Join
+class TestIntegratedProcess(unittest.TestCase):
+    def setUp(self):
+        initialize()
+
+    def test_semiannual_and_quartery_orders_average_by_month(self):
+        def sumup(rs):
+            r = rs[0]
+            r['norders'] = len(rs)
+            return r
+
+        def cnt(rs):
+            for i, r in enumerate(rs):
+                r['cnt'] = i
+                yield r
+
+        def orders_avg_nmonth(r):
+            r['nmonth'] = 3
+            try:
+                r['avg'] = round((r['norders'] + r['norders1'] + r['norders2']) / 3, 1)
+            except:
+                r['avg'] = ''
+            yield r
+
+            r['nmonth'] = 6
+            try:
+                r['avg'] = round((r['norders'] + r['norders1'] + r['norders2'] +  \
+                                r['norders3'] + r['norders4'] + r['norders5']) / 6, 1)
+            except:
+                r['avg'] = ''
+            yield r
+
+        fb.register(
+            orders = fb.load('orders.csv'),
+            # add month
+            orders1 = fb.map(add(yyyymm=lambda r: r['orderdate'][:7]), 'orders'),
+            # count the number of orders by month
             orders2 = fb.map(fn=sumup, data='orders1', by='yyyymm'),
             orders3 = fb.map(fn=cnt, data='orders2', by='*'),
-
+            # want to compute past 6 months 
             orders4 = fb.join(
                 ['orders3', '*', 'cnt'],
                 ['orders3', 'norders as norders1', 'cnt + 1'],
@@ -148,158 +354,65 @@ class TestProcess(unittest.TestCase):
         with fb1._connect('test.db') as c:
             xs = []
             for r in c.fetch('orders_avg_nmonth'):
-                if isnum(r['avg']):
+                if isinstance(r['avg'], float) or isinstance(r['avg'], int):
                     xs.append(xs)
             self.assertEqual(len(xs), 9)
-
-    def test_example2(self):
-        with fb1._connect('test.db') as c:
-            c.drop('orders, customers')
-
-        fb1._JOBS = {}
-        fb.register(
-            customers = fb.load(file='customers.csv'),
-            customers1 = fb.map(bigmarket, 'customers', by='Country', arg=5),
-            # 2 is a chunksize, default is 1
-            customers2 = fb.map(bigmarket1, 'customers', by='Country', arg=5)
-        )
-        fb.run()
-
-        with fb1._connect('test.db') as c:
-            xs = []
-            for r in c.fetch('customers1'):
-                xs.append(r)
-
-            xs2 = []
-            for r in c.fetch('customers2'):
-                xs2.append(r)
-            self.assertEqual(len(xs), len(xs2))
+            
+    def tearDown(self):
+        remdb()
 
 
-    # union
-    def test_example3(self):
-        with fb1._connect('test.db') as c:
-            c.drop('orders')
-
-        fb1._JOBS = {}
-        fb.register(
-            orders=fb.load(file='orders.csv'),
-            orders1=fb.map(lambda r: r, 'orders'),
-            orders2=fb.union('orders, orders1')
-            # the following is also fine
-            # orders2=fb.union(['orders', 'orders1'])
-        )
-        fb.run()
-
-        with fb1._connect('test.db') as c:
-            xs = []
-            for r in c.fetch('orders'):
-                xs.append(r)
-
-            xs2 = []
-            for r in c.fetch('orders2'):
-                xs2.append(r)
-
-            self.assertEqual(len(xs) * 2, len(xs2))
-
-    def test_example4(self):
-        with fb1._connect('test.db') as c:
-            c.drop('orders')
-
-        fb1._JOBS = {}
-        fb.register(
-            orders=fb.load(file='orders.csv'),
-        )
-        # You can do something similar to macro programming
-        # by separating registration. Imagine
-        fb.register(
-            orders1=fb.map(lambda r: r, 'orders'),
-            orders2=fb.union('orders, orders1')
-        )
-        fb.run()
-
-        with fb1._connect('test.db') as c:
-            xs = []
-            for r in c.fetch('orders'):
-                xs.append(r)
-
-            xs2 = []
-            for r in c.fetch('orders2'):
-                xs2.append(r)
-
-            self.assertEqual(len(xs) * 2, len(xs2))
-
-    def test_error1(self):
-        with fb1._connect('test.db') as c:
-            c.drop('orders')
-
-        fb1._JOBS = {}
-        fb.register(
-            orders=fb.load(file='orders.csv'),
-            orders1=fb.map(errornous1, 'orders', by='*')
-        )
-        jobs = fb.run()
-        self.assertEqual([j['output'] for j in jobs], ['orders1'])
-
-    def test_error2(self):
-        with fb1._connect('test.db') as c:
-            c.drop('orders')
-
-        fb1._JOBS = {}
-        fb.register(
-            orders=fb.load(file='orders.csv'),
-            orders1=fb.map(errornous2, 'orders')
-        )
-        jobs = fb.run()
-        self.assertEqual([j['output'] for j in jobs], ['orders1'])
-
-
-def add_yyyymm(r):
-    r['yyyymm'] = r['orderdate'][:7]
-    return r
-
-
+PARALLEL_THREASHOLD = fb1._TOO_MANY_ROWS
 class TestParallel(unittest.TestCase):
-    def test_example1(self):
+    def setUp(self):
+        initialize()
         fb1._TOO_MANY_ROWS = 10
 
-        with fb1._connect('test.db') as c:
-            c.drop('_foo, orders, orders1')
+    def test_simple_parallel_work(self):
+        def add_yyyy(r):
+            r['yyyymm'] = r['orderdate'][:7]
+            r['yyyy'] = r['orderdate'][:4]
+            yield r
+
+        # You can make it slow using expressions like "time.sleep(1)"
+        # And see what happens in '_temp' folder
+        def count(rs):
+            rs[0]['n'] = len(rs)
+            yield rs[0]
 
         fb.register(
-            orders = fb.load('orders.csv'),
-            orders1 = fb.map(add_yyyymm, 'orders'),
-            _foo = fb.map(lambda r: r, 'orders1', where=lambda r: r['customerid'] > 80, 
-                          by='yyyymm, shipperid'
-            ),
+            orders = fb.load('orders.csv', fn=add_yyyy),
+            # you can enforce single-core-proc by passing parallel "False"
+            orders1 = fb.map(count, 'orders', by='yyyymm, shipperid'),
+            orders1s = fb.map(count, 'orders', by='yyyymm, shipperid', parallel=False),
+            # part of workers do not have work to do, sort of a corner case
+            orders2 = fb.map(count, 'orders', where=lambda r: r['yyyy'] == 1997, 
+                             by='yyyymm, shipperid'),
+            orders2s = fb.map(count, 'orders', where=lambda r: r['yyyy'] == 1997, 
+                             by='yyyymm, shipperid', parallel=False),
         )
-    
         fb.run()
         with fb1._connect('test.db') as c:
-            for r in c.fetch('_foo'):
-                print(r)
+            self.assertEqual(list(c.fetch('orders1')), list(c.fetch('orders1s')))
+            self.assertEqual(list(c.fetch('orders2')), list(c.fetch('orders2s')))
 
-    def test_example2(self):
-        with fb1._connect('fofie.db') as c:
-            pass
+    def tearDown(self):
+        fb1._TOO_MANY_ROWS = PARALLEL_THREASHOLD 
 
 
-# class TestLoad(unittest.TestCase):
-#     def test_direct_import(self):
-#         with fb1._connect('test.db') as c:
-#             for t in c.get_tables():
-#                 c.drop(t)
+# utils  
+def nlines_file(name):
+    with open(name) as f:
+        return len(f.readlines())
 
-#         fb.register(orders=fb.load('orders.csv'))
-#         fb.run()
 
-#         with fb1._connect('test.db') as c:
-#             for i, r in enumerate(c.fetch('orders'), 1):
-#                 print(i, r)           
+def add(**kwargs):
+    def fn(r):
+        for k, v in kwargs.items():
+            r[k] = v(r)
+        return r
+    return fn
 
-        
-       
-   
 
 if __name__ == "__main__":
     unittest.main()
