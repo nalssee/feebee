@@ -40,7 +40,11 @@ _filename, _ = os.path.splitext(os.path.basename(sys.argv[0]))
 _DBNAME = _filename + '.db'
 _GRAPH_NAME = _filename + '.gv'
 _JOBS = {}
-_TOO_MANY_ROWS = 10_000_000
+# You can't expect Finance PhDs to set proper size of rows for parallel processing
+# I suspect 20M is a breakeven point where parallel processing starts to pay off for quite a few cases.
+# Users won't lose too much anyhow. If they really want to, they can disable it. 
+# But they don't have to for 99.9% of times.
+_TOO_MANY_ROWS = 20_000_000
 # folder name (in workspace) for temporary databases for parallel work 
 _TEMP = "_temp"
 
@@ -251,17 +255,19 @@ def _execute(c, job):
                 # split table 
                 tcon = 'con' + _random_string(10)
                 ttable = "tbl" + _random_string(10)
+                # You can't use two columns in 'where' clause and 
+                # expect indexing works on both columns
                 tcol = 'col' + _random_string(10)
                 idx = 'idx' + _random_string(10)
                 c._cursor.execute(f"attach database '{dbfiles[0]}' as {tcon}")
-                
+                # TODO: This is slow and makes journals. No idea how to suppress it 
                 c._cursor.execute(f"""create table {tcon}.{ttable} as 
                 select *, cast({' || '.join(_listify(job['by']))}  as TEXT) as {tcol} 
                 from {itable} order by {job['by']}
                 """)    
                 c._conn.commit()
                 c._cursor.execute(f"detach database {tcon}")
-
+                
                 with _connect(dbfiles[0]) as c1:
                     c1._cursor.execute(f"create index {idx} on {ttable}({tcol})")
 
@@ -279,6 +285,7 @@ def _execute(c, job):
                 cuts1 = [(c1, c2) for c1, c2 in zip(cuts, cuts[1:-1]) if c1 != c2] +\
                         [(cuts[-2], False)]
 
+                # copying is fast enough
                 dbfiles = dbfiles[0:len(cuts1)]
                 for dbfile in dbfiles[1:]:
                     copyfile(dbfiles[0], dbfile)
@@ -638,6 +645,7 @@ def read_df(df):
     header = [c.strip() for c in df.columns]
     for _, r in df.iterrows():
         yield {k: v for k, v in zip(header, ((str(r[c]) for c in cols)))}
+
 
 # this could be more complex but should it be?
 def _read_excel(filename):
