@@ -610,30 +610,34 @@ def _create_statement(name, colnames):
     return "create table if not exists %s (%s)" % (name, schema)
 
 
+# column can contain spaces. So you must strip them all
 def _insert_statement(name, d):
     "insert into foo values (:a, :b, :c, ...)"
-    keycols = ', '.join(":" + c for c in d) 
+    keycols = ', '.join(":" + c.strip() for c in d) 
     return "insert into %s values (%s)" % (name, keycols)
 
 
 def _read_csv(filename, delimiter=',', quotechar='"', encoding='utf-8'):
     with open(os.path.join(WORKSPACE, filename), encoding=encoding) as f:
-        yield from csv.DictReader(f, delimiter=delimiter, quotechar=quotechar)
+        header = [c.strip() for c in f.readline().split(delimiter)]
+        yield from csv.DictReader(f, fieldnames=header,
+                                  delimiter=delimiter, quotechar=quotechar)
 
 
 def _read_sas(filename):
     filename = os.path.join(WORKSPACE, filename)
     with SAS7BDAT(filename) as f:
         reader = f.readlines()
-        header = next(reader)
+        header = [c.strip() for c in next(reader)]
         for line in reader:
             yield {k: v for k, v in zip(header, line)}
 
 
 def read_df(df):
     cols = df.columns
+    header = [c.strip() for c in df.columns]
     for _, r in df.iterrows():
-        yield {k: v for k, v in zip(cols, ((str(r[c]) for c in cols)))}
+        yield {k: v for k, v in zip(header, ((str(r[c]) for c in cols)))}
 
 # this could be more complex but should it be?
 def _read_excel(filename):
