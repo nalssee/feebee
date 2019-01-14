@@ -362,11 +362,10 @@ class TestIntegratedProcess(unittest.TestCase):
         remdb()
 
 
-PARALLEL_THREASHOLD = fb1._TOO_MANY_ROWS
 class TestParallel(unittest.TestCase):
     def setUp(self):
         initialize()
-        fb1._TOO_MANY_ROWS = 10
+        fb.CONFIG['parallel_threshold'] = 10
 
     def test_simple_parallel_work(self):
         def add_yyyy(r):
@@ -390,14 +389,19 @@ class TestParallel(unittest.TestCase):
                              by='yyyymm, shipperid'),
             orders2s = fb.map(count, 'orders', where=lambda r: r['yyyy'] == 1997, 
                              by='yyyymm, shipperid', parallel=False),
+            # one column should work as well
+            orders3 = fb.map(count, 'orders', by='yyyymm'),
+            orders3s = fb.map(count, 'orders', by='yyyymm', parallel=False),
         )
         fb.run()
         with fb1._connect('test.db') as c:
             self.assertEqual(list(c.fetch('orders1')), list(c.fetch('orders1s')))
             self.assertEqual(list(c.fetch('orders2')), list(c.fetch('orders2s')))
+            self.assertEqual(list(c.fetch('orders3')), list(c.fetch('orders3s')))
 
     def tearDown(self):
-        fb1._TOO_MANY_ROWS = PARALLEL_THREASHOLD 
+        remdb()
+        fb.CONFIG['parallel_threshold'] = 20_000_000
 
 
 # utils  

@@ -18,9 +18,31 @@ import psutil
 import pandas as pd
 from sas7bdat import SAS7BDAT
 from graphviz import Digraph
-
 from pathos.multiprocessing import ProcessingPool as Pool
 
+
+CONFIG = {
+    'ws': '',
+
+    'temp_store': 2,
+    'journal_mode': 'OFF',
+    'locking_mode': 'EXCLUSIVE',
+    'synchronous': 'OFF',
+    # from sqlite homepage
+    'mmap_size': 268435456,
+    # cache_size and page_size effects are minimal
+    # 'cache_size': 10_000,
+    # 'page_size': 512, 
+
+    'parallel_threshold': 20_000_000,
+}
+
+_filename, _ = os.path.splitext(os.path.basename(sys.argv[0]))
+_DBNAME = _filename + '.db'
+_GRAPH_NAME = _filename + '.gv'
+_JOBS = {}
+# folder name (in workspace) for temporary databases for parallel work 
+_TEMP = "_temp"
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -34,19 +56,6 @@ if os.name == 'nt':
 else:
     locale.setlocale(locale.LC_ALL, 'en_US.UTF-8')
 
-
-WORKSPACE = ''
-_filename, _ = os.path.splitext(os.path.basename(sys.argv[0]))
-_DBNAME = _filename + '.db'
-_GRAPH_NAME = _filename + '.gv'
-_JOBS = {}
-# You can't expect Finance PhDs to set proper size of rows for parallel processing
-# I suspect 20M is a breakeven point where parallel processing starts to pay off for quite a few cases.
-# Users won't lose too much anyhow. If they really want to, they can disable it. 
-# But they don't have to for 99.9% of times.
-_TOO_MANY_ROWS = 20_000_000
-# folder name (in workspace) for temporary databases for parallel work 
-_TEMP = "_temp"
 
 class FeebeeError(Exception):
     pass
@@ -88,23 +97,22 @@ def _delayed_keyboard_interrupts():
             old_handler(*signal_received)
 
 
+def _pragmas(attached=None):
+    return [f"PRAGMA {attached + '.' if attached else ''}{prag}={CONFIG[prag]}" for prag in\
+              ['temp_store', 'journal_mode', 'mmap_size', 'locking_mode', 'synchronous']]
+    
+
 class _Connection:
     def __init__(self, dbfile, cache_size, temp_store):
-        global WORKSPACE
-        if not WORKSPACE:
-            WORKSPACE = os.getcwd()
-
-        dbfile = os.path.join(WORKSPACE, dbfile)
+        if not CONFIG['ws']:
+            CONFIG['ws'] = os.getcwd()
+        dbfile = os.path.join(CONFIG['ws'], dbfile)
 
         self._conn = sqlite3.connect(dbfile)
         self._conn.row_factory = _dict_factory
         self._cursor = self._conn.cursor()
-        self._cursor.execute(f'PRAGMA cache_size={cache_size}')
-        self._cursor.execute(f'PRAGMA temp_store={temp_store}')
-        self._cursor.execute('PRAGMA journal_mode=OFF')
-        # other considerable options
-        # self._cursor.execute('PRAGMA mmap_size=268435456')
-        # self._cursor.execute('PRAGMA synchronous = 0')
+        for prag in _pragmas():
+            self._cursor.execute(prag)
 
     def fetch(self, tname, where=None, by=None):
         query = f'select * from {tname}'
@@ -154,7 +162,7 @@ class _Connection:
             seq = filename
 
         if fn:
-            seq = flatten(fn(rs) for rs in seq) 
+            seq = _flatten(fn(rs) for rs in seq) 
         self.insert(seq, name)
 
     def get_tables(self):
@@ -217,7 +225,7 @@ def _dict_factory(cursor, row):
     return d
 
 
-def flatten(seq):
+def _flatten(seq):
     for x in seq:
         if isinstance(x, dict):
             yield x
@@ -228,9 +236,9 @@ def flatten(seq):
 def _execute(c, job):
     def applyfn(fn, seq, arg):
         if arg:
-            yield from flatten(fn(rs, arg) for rs in seq)
+            yield from _flatten(fn(rs, arg) for rs in seq)
         else:
-            yield from flatten(fn(rs) for rs in seq) 
+            yield from _flatten(fn(rs) for rs in seq) 
 
     cmd = job['cmd']
     if cmd == 'load':
@@ -244,32 +252,40 @@ def _execute(c, job):
             tsize = c._size(itable) 
         # condition for parallel work
         if job['parallel'] and job['by'] and job['by'].strip() != '*' and\
-           max_workers > 1 and tsize > _TOO_MANY_ROWS: 
+           max_workers > 1 and tsize > CONFIG['parallel_threshold']: 
             try:
-                tdir = os.path.join(WORKSPACE, _TEMP)
+                tdir = os.path.join(CONFIG['ws'], _TEMP)
                 if not os.path.exists(tdir):
                     os.makedirs(tdir)
 
                 dbfiles = [os.path.join(_TEMP, _random_string(10)) for _ in range(max_workers)]
                 # dbfiles = [_random_string(10) for _ in range(max_workers)]
                 # split table 
-                tcon = 'con' + _random_string(10)
-                ttable = "tbl" + _random_string(10)
+                icols = c._cols(f'select * from {itable}')
+                tcon = 'con' + _random_string(9)
+                ttable = "tbl" + _random_string(9)
                 # You can't use two columns in 'where' clause and 
                 # expect indexing works on both columns
-                tcol = 'col' + _random_string(10)
-                idx = 'idx' + _random_string(10)
+                tcol = 'col' + _random_string(9) if len(_listify(job['by'])) != 1 else job['by']
                 c._cursor.execute(f"attach database '{dbfiles[0]}' as {tcon}")
-                # TODO: This is slow and makes journals. No idea how to suppress it 
-                c._cursor.execute(f"""create table {tcon}.{ttable} as 
-                select *, cast({' || '.join(_listify(job['by']))}  as TEXT) as {tcol} 
-                from {itable} order by {job['by']}
-                """)    
+                # TODO: strangely enough, you can't set synchronous off here
+                for prag in _pragmas(tcon)[:-1]:
+                    c._conn.cursor().execute(prag)
+
+                if len(_listify(job['by'])) != 1: 
+                    c._cursor.execute(f"""create table {tcon}.{ttable} as 
+                    select *, cast({' || '.join(_listify(job['by']))}  as TEXT) as {tcol} 
+                    from {itable} order by {job['by']}
+                    """)
+                else:
+                    c._cursor.execute(f"""create table {tcon}.{ttable} as 
+                    select * from {itable} order by {job['by']}
+                    """)
                 c._conn.commit()
                 c._cursor.execute(f"detach database {tcon}")
                 
                 with _connect(dbfiles[0]) as c1:
-                    c1._cursor.execute(f"create index {idx} on {ttable}({tcol})")
+                    c1._cursor.execute(f"create index {'x' + _random_string(9)} on {ttable}({tcol})")
 
                 # copy files 
                 def nth_tcol(n):
@@ -302,18 +318,13 @@ def _execute(c, job):
                         
                     with _connect(dbfile) as c1:
                         def gen():
-                            # You should create a new cursor! Insertion takes place at the same time
-                            # see fetch
-                            seq = c1._conn.cursor().execute(put_where(f'select * from {ttable}', cut))
+                            seq = c1._conn.cursor().execute(
+                                put_where(f"select {','.join(icols)} from {ttable}", cut))
                             wh = job['where']
                             if wh:
                                 seq = (r for r in seq if wh(r))
-                            for _, rs in groupby(seq, _build_keyfn(tcol)):
-                                rs1 = []
-                                for r in rs:
-                                    r.pop(tcol, None)
-                                    rs1.append(r)
-                                yield rs1
+                            for _, rs in groupby(seq, _build_keyfn(job['by'])):
+                                yield list(rs)
 
                         seq = applyfn(job['fn'], gen(), job['arg'])
                         try:
@@ -625,14 +636,14 @@ def _insert_statement(name, d):
 
 
 def _read_csv(filename, delimiter=',', quotechar='"', encoding='utf-8'):
-    with open(os.path.join(WORKSPACE, filename), encoding=encoding) as f:
+    with open(os.path.join(CONFIG['ws'], filename), encoding=encoding) as f:
         header = [c.strip() for c in f.readline().split(delimiter)]
         yield from csv.DictReader(f, fieldnames=header,
                                   delimiter=delimiter, quotechar=quotechar)
 
 
 def _read_sas(filename):
-    filename = os.path.join(WORKSPACE, filename)
+    filename = os.path.join(CONFIG['ws'], filename)
     with SAS7BDAT(filename) as f:
         reader = f.readlines()
         header = [c.strip() for c in next(reader)]
@@ -640,7 +651,7 @@ def _read_sas(filename):
             yield {k: v for k, v in zip(header, line)}
 
 
-def read_df(df):
+def _read_df(df):
     cols = df.columns
     header = [c.strip() for c in df.columns]
     for _, r in df.iterrows():
@@ -649,15 +660,15 @@ def read_df(df):
 
 # this could be more complex but should it be?
 def _read_excel(filename):
-    filename = os.path.join(WORKSPACE, filename)
+    filename = os.path.join(CONFIG['ws'], filename)
     # it's OK. Excel files are small
     df = pd.read_excel(filename)
-    yield from read_df(df)
+    yield from _read_df(df)
 
 
 # raises a deprecation warning 
 def _read_stata(filename):
-    filename = os.path.join(WORKSPACE, filename)
+    filename = os.path.join(CONFIG['ws'], filename)
     chunk = 10_000
     for xs in pd.read_stata(filename, chunksize=chunk):
-        yield from read_df(xs)
+        yield from _read_df(xs)
