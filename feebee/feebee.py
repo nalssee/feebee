@@ -19,21 +19,24 @@ from graphviz import Digraph
 from pathos.multiprocessing import ProcessingPool as Pool
 
 
-CONFIG = {
-    'ws': '',
-
+_pragma_options = {
     'temp_store': 2,
     'journal_mode': 'OFF',
-    'locking_mode': 'EXCLUSIVE',
-    'synchronous': 'OFF',
+    'locking_mode': 'NORMAL', # default
     # from sqlite homepage
-    'mmap_size': 268435456,
+    'mmap_size': 13_107_200,
     # cache_size and page_size effects are minimal
-    # 'cache_size': 10_000,
-    # 'page_size': 512, 
-
-    'parallel_threshold': 20_000_000,
+    'cache_size': 10_000,
+    'page_size': 512, 
+    'synchronous': 2, # defualt
 }
+
+
+CONFIG = {k: v for k, v in _pragma_options.items()}
+CONFIG['ws'] = ''
+CONFIG['max_workers'] = psutil.cpu_count(logical=False)
+CONFIG['parallel_threshold'] = 100_000_000
+
 
 _filename, _ = os.path.splitext(os.path.basename(sys.argv[0]))
 _DBNAME = _filename + '.db'
@@ -98,8 +101,8 @@ def _delayed_keyboard_interrupts():
 
 
 def _pragmas(attached=None):
-    return [f"PRAGMA {attached + '.' if attached else ''}{prag}={CONFIG[prag]}" for prag in\
-              ['temp_store', 'journal_mode', 'mmap_size', 'locking_mode', 'synchronous']]
+    return [f"PRAGMA {attached + '.' if attached else ''}{prag}={CONFIG[prag]}"
+             for prag in _pragma_options]
     
 
 class _Connection:
@@ -247,7 +250,7 @@ def _execute(c, job):
     elif cmd == 'map':
         itable = job['inputs'][0]
         if job['parallel'] and job['by']:
-            max_workers = psutil.cpu_count(logical=False)
+            max_workers = CONFIG['max_workers'] 
             # Rather expensive 
             tsize = c._size(itable) 
         # condition for parallel work

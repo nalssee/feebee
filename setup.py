@@ -1,7 +1,7 @@
 from setuptools import setup
 
 setup(name='feebee',
-      version='0.2.3',
+      version='0.2.4',
       description='datawork tools',
       url='https://github.com/nalssee/feebee.git',
       author='nalssee',
