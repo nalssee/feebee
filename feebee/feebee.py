@@ -2,16 +2,14 @@ import os
 import sys
 import sqlite3
 import csv
-import shutil
 import locale
 import random
 import string
 import signal
 import logging
 
-from datetime import datetime
 from contextlib import contextmanager
-from itertools import groupby, chain, repeat
+from itertools import groupby, chain
 from shutil import copyfile
 import psutil
 
@@ -60,6 +58,7 @@ else:
 class FeebeeError(Exception):
     pass
 
+
 class NoRowToInsert(FeebeeError):
     pass
 
@@ -84,6 +83,7 @@ def _connect(dbfile, cache_size=100000, temp_store=2):
 @contextmanager
 def _delayed_keyboard_interrupts():
     signal_received = False 
+
     def handler(sig, frame):
         signal_received = (sig, frame) 
         logger.debug('SIGINT received. Delaying KeyboardInterrupt.')
@@ -270,7 +270,7 @@ def _execute(c, job):
                 c._cursor.execute(f"attach database '{dbfiles[0]}' as {tcon}")
                 # TODO: strangely enough, you can't set synchronous off here
                 for prag in _pragmas(tcon)[:-1]:
-                    c._conn.cursor().execute(prag)
+                    c._cursor.execute(prag)
 
                 if len(_listify(job['by'])) != 1: 
                     c._cursor.execute(f"""create table {tcon}.{ttable} as 
