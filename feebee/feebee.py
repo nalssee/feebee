@@ -22,13 +22,13 @@ from pathos.multiprocessing import ProcessingPool as Pool
 _pragma_options = {
     'temp_store': 2,
     'journal_mode': 'OFF',
-    'locking_mode': 'NORMAL', # default
+    # 'locking_mode': 'NORMAL', # default
     # from sqlite homepage
-    'mmap_size': 13_107_200,
+    # 'mmap_size': 13_107_200,
     # cache_size and page_size effects are minimal
-    'cache_size': 10_000,
-    'page_size': 512, 
-    'synchronous': 2, # defualt
+    # 'cache_size': 10_000,
+    # 'page_size': 512, 
+    # 'synchronous': 2, # defualt
 }
 
 
@@ -67,8 +67,8 @@ class NoRowToInsert(FeebeeError):
 
 
 @contextmanager
-def _connect(dbfile, cache_size=100000, temp_store=2):
-    conn = _Connection(dbfile, cache_size, temp_store)
+def _connect(dbfile):
+    conn = _Connection(dbfile)
     try:
         yield conn
     finally:
@@ -106,7 +106,7 @@ def _pragmas(attached=None):
     
 
 class _Connection:
-    def __init__(self, dbfile, cache_size, temp_store):
+    def __init__(self, dbfile):
         if not CONFIG['ws']:
             CONFIG['ws'] = os.getcwd()
         dbfile = os.path.join(CONFIG['ws'], dbfile)
@@ -243,36 +243,60 @@ def _execute(c, job):
         else:
             yield from _flatten(fn(rs) for rs in seq) 
 
+    def collect_tables(dbfiles)
+        succeeded_dbfiles = []
+        for dbfile in dbfiles:
+            with _connect(dbfile) as c1:
+                if job['output'] in c1.get_tables():
+                    succeeded_dbfiles.append(dbfile)
+
+        if succeeded_dbfiles == []:
+            raise NoRowToInsert
+
+        with _connect(succeeded_dbfiles[0]) as c1:
+            ocols = c1._cols(f"select * from {job['output']}")
+
+        # collect tables from dbfiles 
+        c._cursor.execute(_create_statement(job['output'], ocols))
+        for dbfile in succeeded_dbfiles:
+            c._cursor.execute(f"attach database '{dbfile}' as {tcon}")
+            c._cursor.execute(f"""
+            insert into {job['output']} select * from {tcon}.{job['output']}
+            """)
+            c._conn.commit()
+            c._cursor.execute(f"detach database {tcon}")
+
+
     cmd = job['cmd']
     if cmd == 'load':
         c.load(job['file'], job['output'], delimiter=job['delimiter'],
                quotechar=job['quotechar'], encoding=job['encoding'], fn=job['fn'])
     elif cmd == 'map':
         itable = job['inputs'][0]
-        if job['parallel'] and job['by']:
+        if job['parallel']:
             max_workers = CONFIG['max_workers'] 
+
+            tdir = os.path.join(CONFIG['ws'], _TEMP)
+            if not os.path.exists(tdir):
+                os.makedirs(tdir)
+            dbfiles = [os.path.join(_TEMP, _random_string(10)) for _ in range(max_workers)]
+
+            tcon = 'con' + _random_string(9)
+            ttable = "tbl" + _random_string(9)
             # Rather expensive 
             tsize = c._size(itable) 
-        # condition for parallel work
-        if job['parallel'] and job['by'] and job['by'].strip() != '*' and\
-           max_workers > 1 and tsize > CONFIG['parallel_threshold']: 
-            try:
-                tdir = os.path.join(CONFIG['ws'], _TEMP)
-                if not os.path.exists(tdir):
-                    os.makedirs(tdir)
 
-                dbfiles = [os.path.join(_TEMP, _random_string(10)) for _ in range(max_workers)]
-                # dbfiles = [_random_string(10) for _ in range(max_workers)]
+        # condition for parallel work by group
+        if job['parallel'] and job['by'] and job['by'].strip() != '*' and max_workers > 1: 
+            try:
                 # split table 
                 icols = c._cols(f'select * from {itable}')
-                tcon = 'con' + _random_string(9)
-                ttable = "tbl" + _random_string(9)
-                # You can't use two columns in 'where' clause and 
+               # You can't use two columns in 'where' clause and 
                 # expect indexing works on both columns
                 tcol = 'col' + _random_string(9) if len(_listify(job['by'])) != 1 else job['by']
                 c._cursor.execute(f"attach database '{dbfiles[0]}' as {tcon}")
                 # TODO: strangely enough, you can't set synchronous off here
-                for prag in _pragmas(tcon)[:-1]:
+                for prag in _pragmas(tcon):
                     c._cursor.execute(prag)
 
                 if len(_listify(job['by'])) != 1: 
@@ -337,35 +361,19 @@ def _execute(c, job):
                             pass
 
                 exe.map(_proc, dbfiles, cuts1)
-
-                succeeded_dbfiles = []
-                for dbfile in dbfiles:
-                    with _connect(dbfile) as c1:
-                        if job['output'] in c1.get_tables():
-                            succeeded_dbfiles.append(dbfile)
-
-                if succeeded_dbfiles == []:
-                    raise NoRowToInsert
-
-                with _connect(succeeded_dbfiles[0]) as c1:
-                    ocols = c1._cols(f"select * from {job['output']}")
-
-                # collect tables from dbfiles 
-                c._cursor.execute(_create_statement(job['output'], ocols))
-                for dbfile in succeeded_dbfiles:
-                    c._cursor.execute(f"attach database '{dbfile}' as {tcon}")
-                    c._cursor.execute(f"""
-                    insert into {job['output']} select * from {tcon}.{job['output']}
-                    """)
-                    c._conn.commit()
-                    c._cursor.execute(f"detach database {tcon}")
+                collect_tables(dbfiles)
 
             finally:
                 with _delayed_keyboard_interrupts():
                     for dbfile in dbfiles:
                         if os.path.exists(dbfile):
                             os.remove(dbfile)
+        
+        # non group parallel work
+        elif job['parallel'] and (not job['by']) and max_workers > 1: 
 
+            pass
+ 
         else:
             seq = c.fetch(job['inputs'][0],job['where'], job['by'])
             seq1 = applyfn(job['fn'], seq, job['arg'])
@@ -391,8 +399,7 @@ def load(file=None, fn=None, delimiter=None, quotechar='"', encoding='utf-8'):
             'inputs': []}
 
 
-# default parallel is True
-def map(fn=None, data=None, where=None, by=None, arg=None, parallel=True):
+def map(fn=None, data=None, where=None, by=None, arg=None, parallel=False):
     return {
         'cmd': 'map',
         'fn': fn,
