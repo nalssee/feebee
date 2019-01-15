@@ -19,23 +19,10 @@ from graphviz import Digraph
 from pathos.multiprocessing import ProcessingPool as Pool
 
 
-_pragma_options = {
-    'temp_store': 2,
-    'journal_mode': 'OFF',
-    # 'locking_mode': 'NORMAL', # default
-    # from sqlite homepage
-    # 'mmap_size': 13_107_200,
-    # cache_size and page_size effects are minimal
-    # 'cache_size': 10_000,
-    # 'page_size': 512, 
-    # 'synchronous': 2, # defualt
+CONFIG = {
+    'ws': '',
+    'max_workers': psutil.cpu_count(logical=False),
 }
-
-
-CONFIG = {k: v for k, v in _pragma_options.items()}
-CONFIG['ws'] = ''
-CONFIG['max_workers'] = psutil.cpu_count(logical=False)
-
 
 _filename, _ = os.path.splitext(os.path.basename(sys.argv[0]))
 _DBNAME = _filename + '.db'
@@ -99,11 +86,6 @@ def _delayed_keyboard_interrupts():
             old_handler(*signal_received)
 
 
-def _pragmas(attached=None):
-    return [f"PRAGMA {attached + '.' if attached else ''}{prag}={CONFIG[prag]}"
-             for prag in _pragma_options]
-    
-
 class _Connection:
     def __init__(self, dbfile):
         if not CONFIG['ws']:
@@ -113,8 +95,8 @@ class _Connection:
         self._conn = sqlite3.connect(dbfile)
         self._conn.row_factory = _dict_factory
         self._cursor = self._conn.cursor()
-        for prag in _pragmas():
-            self._cursor.execute(prag)
+        # DO NOT reconfigure pragmas. Defaults are defaults for a reason.
+        # You could make it faster but with a cost. It could corrupt the disk image of the database.
 
     def fetch(self, tname, where=None, by=None):
         query = f'select * from {tname}'
@@ -259,8 +241,6 @@ def _execute(c, job):
         # collect tables from dbfiles 
         for dbfile in succeeded_dbfiles:
             c._cursor.execute(f"attach database '{dbfile}' as {tcon}")
-            for prag in _pragmas(tcon):
-                c._cursor.execute(prag)
             c._cursor.execute(f"""
             insert into {job['output']} select * from {tcon}.{job['output']}
             """)
@@ -316,8 +296,6 @@ def _execute(c, job):
                 
                 for (a, b), dbfile in zip(zip(newbreaks, newbreaks[1:]), dbfiles):
                     c._cursor.execute(f"attach database '{dbfile}' as {tcon}")
-                    for prag in _pragmas(tcon):
-                        c._cursor.execute(prag)
                     c._cursor.execute(f"""
                     create table {tcon}.{ttable} as select * from {ttable} 
                     where _ROWID_ > {a} and _ROWID_ <= {b}
@@ -361,8 +339,6 @@ def _execute(c, job):
             try:
                 for (a, b), dbfile in zip(zip(breaks, breaks[1:] + [tsize]), dbfiles):
                     c._cursor.execute(f"attach database '{dbfile}' as {tcon}")
-                    for prag in _pragmas(tcon):
-                        c._cursor.execute(prag)
                     c._cursor.execute(f"""
                     create table {tcon}.{ttable} as select * from {itable} 
                     where _ROWID_ > {a} and _ROWID_ <= {b}
