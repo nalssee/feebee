@@ -35,7 +35,6 @@ _pragma_options = {
 CONFIG = {k: v for k, v in _pragma_options.items()}
 CONFIG['ws'] = ''
 CONFIG['max_workers'] = psutil.cpu_count(logical=False)
-CONFIG['parallel_threshold'] = 100_000_000
 
 
 _filename, _ = os.path.splitext(os.path.basename(sys.argv[0]))
@@ -234,7 +233,7 @@ def _flatten(seq):
             yield x
         else:
             yield from x
-
+import multiprocessing
 
 def _execute(c, job):
     def applyfn(fn, seq, arg):
@@ -243,29 +242,31 @@ def _execute(c, job):
         else:
             yield from _flatten(fn(rs) for rs in seq) 
 
-    def collect_tables(dbfiles)
+    def collect_tables(dbfiles):
         succeeded_dbfiles = []
         for dbfile in dbfiles:
             with _connect(dbfile) as c1:
                 if job['output'] in c1.get_tables():
                     succeeded_dbfiles.append(dbfile)
 
-        if succeeded_dbfiles == []:
+        if succeeded_dbfiles == [] and (job['output'] not in c.get_tables()):
             raise NoRowToInsert
 
-        with _connect(succeeded_dbfiles[0]) as c1:
-            ocols = c1._cols(f"select * from {job['output']}")
-
+        if job['output'] not in c.get_tables():
+            with _connect(succeeded_dbfiles[0]) as c1:
+                ocols = c1._cols(f"select * from {job['output']}")
+            c._cursor.execute(_create_statement(job['output'], ocols))
+            
         # collect tables from dbfiles 
-        c._cursor.execute(_create_statement(job['output'], ocols))
         for dbfile in succeeded_dbfiles:
             c._cursor.execute(f"attach database '{dbfile}' as {tcon}")
+            for prag in _pragmas(tcon):
+                c._cursor.execute(prag)
             c._cursor.execute(f"""
             insert into {job['output']} select * from {tcon}.{job['output']}
             """)
             c._conn.commit()
             c._cursor.execute(f"detach database {tcon}")
-
 
     cmd = job['cmd']
     if cmd == 'load':
@@ -279,99 +280,93 @@ def _execute(c, job):
             tdir = os.path.join(CONFIG['ws'], _TEMP)
             if not os.path.exists(tdir):
                 os.makedirs(tdir)
-            dbfiles = [os.path.join(_TEMP, _random_string(10)) for _ in range(max_workers)]
+            dbfiles = [os.path.join(_TEMP, _random_string(10)) for _ in range(max_workers - 1)]
 
             tcon = 'con' + _random_string(9)
             ttable = "tbl" + _random_string(9)
             # Rather expensive 
             tsize = c._size(itable) 
-
+            breaks = [int(i * tsize / max_workers) for i in range(1, max_workers)] 
+            
         # condition for parallel work by group
-        if job['parallel'] and job['by'] and job['by'].strip() != '*' and max_workers > 1: 
+        if job['parallel'] and job['by'] and job['by'].strip() != '*' and \
+            tsize >= max_workers and max_workers > 1: 
             try:
-                # split table 
-                icols = c._cols(f'select * from {itable}')
-               # You can't use two columns in 'where' clause and 
-                # expect indexing works on both columns
-                tcol = 'col' + _random_string(9) if len(_listify(job['by'])) != 1 else job['by']
-                c._cursor.execute(f"attach database '{dbfiles[0]}' as {tcon}")
-                # TODO: strangely enough, you can't set synchronous off here
-                for prag in _pragmas(tcon):
-                    c._cursor.execute(prag)
+                bys = _listify(job['by'])
 
-                if len(_listify(job['by'])) != 1: 
-                    c._cursor.execute(f"""create table {tcon}.{ttable} as 
-                    select *, cast({' || '.join(_listify(job['by']))}  as TEXT) as {tcol} 
-                    from {itable} order by {job['by']}
-                    """)
-                else:
-                    c._cursor.execute(f"""create table {tcon}.{ttable} as 
-                    select * from {itable} order by {job['by']}
-                    """)
-                c._conn.commit()
-                c._cursor.execute(f"detach database {tcon}")
+                c._cursor.execute(f"""
+                create table {ttable} as select * from {itable} order by {job['by']}
+                """)
+
+                def nth_gcols(n):
+                    c._cursor.execute(f"select * from {ttable} where _ROWID_ == {n} limit 1")
+                    r =  c._cursor.fetchone()
+                    return [r[c] for c in bys]
+
+                def where1(br):
+                    return ' and '.join(f"{c} = {repr(v)}" for c, v in zip(bys, nth_gcols(br)))
                 
-                with _connect(dbfiles[0]) as c1:
-                    c1._cursor.execute(f"create index {'x' + _random_string(9)} on {ttable}({tcol})")
+                def build_wheres(breaks):
+                   return ' or '.join(where1(br) for br in breaks)
 
-                # copy files 
-                def nth_tcol(n):
-                    with _connect(dbfiles[0]) as c1:
-                        c1._cursor.execute(f"select * from {ttable} where _rowid_ == {n} limit 1")
-                        return c1._cursor.fetchone()[tcol]
+                # don't use r['_rowid_'] here
+                newbreaks = [list(r.values())[0] for r in c._cursor.execute(f"""
+                select _ROWID_ from {ttable} 
+                where {build_wheres(breaks)} group by {job['by']} having MAX(_ROWID_)
+                """)] + [tsize]
 
-                cuts = [nth_tcol(1)] + \
-                       [nth_tcol(int(i * tsize / max_workers)) for i in range(1, max_workers)] + \
-                       [nth_tcol(tsize)]
-
-                # build ranges. Be very careful 
-                cuts1 = [(c1, c2) for c1, c2 in zip(cuts, cuts[1:-1]) if c1 != c2] +\
-                        [(cuts[-2], False)]
-
-                # copying is fast enough
-                dbfiles = dbfiles[0:len(cuts1)]
-                for dbfile in dbfiles[1:]:
-                    copyfile(dbfiles[0], dbfile)
- 
-                # parallel work (not max_workers)
-                exe = Pool(len(dbfiles)) 
-                def _proc(dbfile, cut):
-                    def put_where(query, cut):
-                        a, b = cut 
-                        if b == False:
-                            return f"{query} where {tcol} >= '{a}'"
-                        else:
-                            return f"{query} where {tcol} >= '{a}' and {tcol} < '{b}'"
-                        
-                    with _connect(dbfile) as c1:
-                        def gen():
-                            seq = c1._conn.cursor().execute(
-                                put_where(f"select {','.join(icols)} from {ttable}", cut))
-                            wh = job['where']
-                            if wh:
-                                seq = (r for r in seq if wh(r))
-                            for _, rs in groupby(seq, _build_keyfn(job['by'])):
-                                yield list(rs)
-
-                        seq = applyfn(job['fn'], gen(), job['arg'])
+                
+                for (a, b), dbfile in zip(zip(newbreaks, newbreaks[1:]), dbfiles):
+                    c._cursor.execute(f"attach database '{dbfile}' as {tcon}")
+                    for prag in _pragmas(tcon):
+                        c._cursor.execute(prag)
+                    c._cursor.execute(f"""
+                    create table {tcon}.{ttable} as select * from {ttable} 
+                    where _ROWID_ > {a} and _ROWID_ <= {b}
+                    """)
+                    c._conn.commit()
+                    c._cursor.execute(f"detach database {tcon}")
+            
+                def _proc(dbfile):
+                    print('aaaaaaaaaaaaa', multiprocessing.current_process().name)
+                    def gen(query, c):
+                        seq = c._conn.cursor().execute(query)
+                        wh = job['where']
+                        if wh:
+                            seq = (r for r in seq if wh(r))
+                        for _, rs in groupby(seq, _build_keyfn(job['by'])):
+                            yield list(rs)
+                    if isinstance(dbfile, int):
+                        print('aaaaaaaaaaaaa', multiprocessing.current_process().name)
+                        query = f"select * from {ttable} where _ROWID_ <= {dbfile}"
+                        seq = applyfn(job['fn'], gen(query, c), job['arg'])
                         try:
-                            c1.insert(seq, job['output'])
+                            c.insert(seq, job['output'])
                         except NoRowToInsert:
-                            # allow empty rows, it could happen
                             pass
 
-                exe.map(_proc, dbfiles, cuts1)
+                        pass
+                    else:
+                        query = f"select * from {ttable}"
+                        with _connect(dbfile) as c1:
+                            seq = applyfn(job['fn'], gen(query, c1), job['arg'])
+                            try:
+                                c1.insert(seq, job['output'])
+                            except NoRowToInsert:
+                                pass
+
+                exe = Pool(len(dbfiles)) 
+                print('hello')
+                exe.map(_proc, [0] + dbfiles)
                 collect_tables(dbfiles)
 
             finally:
-                with _delayed_keyboard_interrupts():
-                    for dbfile in dbfiles:
-                        if os.path.exists(dbfile):
-                            os.remove(dbfile)
-        
-        # non group parallel work
+                for dbfile in dbfiles:
+                    if os.path.exists(dbfile):
+                        os.remove(dbfile)
+    
+        # # non group parallel work
         elif job['parallel'] and (not job['by']) and max_workers > 1: 
-
             pass
  
         else:

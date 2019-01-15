@@ -365,7 +365,6 @@ class TestIntegratedProcess(unittest.TestCase):
 class TestParallel(unittest.TestCase):
     def setUp(self):
         initialize()
-        fb.CONFIG['parallel_threshold'] = 10
 
     def test_simple_parallel_work(self):
         def add_yyyy(r):
@@ -383,15 +382,15 @@ class TestParallel(unittest.TestCase):
             orders = fb.load('orders.csv', fn=add_yyyy),
             # you can enforce single-core-proc by passing parallel "False"
             orders1 = fb.map(count, 'orders', by='yyyymm, shipperid'),
-            orders1s = fb.map(count, 'orders', by='yyyymm, shipperid', parallel=False),
+            orders1s = fb.map(count, 'orders', by='yyyymm, shipperid', parallel=True),
             # part of workers do not have work to do, sort of a corner case
             orders2 = fb.map(count, 'orders', where=lambda r: r['yyyy'] == 1997, 
                              by='yyyymm, shipperid'),
             orders2s = fb.map(count, 'orders', where=lambda r: r['yyyy'] == 1997, 
-                             by='yyyymm, shipperid', parallel=False),
+                             by='yyyymm, shipperid', parallel=True),
             # one column should work as well
             orders3 = fb.map(count, 'orders', by='yyyymm'),
-            orders3s = fb.map(count, 'orders', by='yyyymm', parallel=False),
+            orders3s = fb.map(count, 'orders', by='yyyymm', parallel=True),
         )
         fb.run()
         with fb1._connect('test.db') as c:
@@ -401,7 +400,6 @@ class TestParallel(unittest.TestCase):
 
     def tearDown(self):
         remdb()
-        fb.CONFIG['parallel_threshold'] = 20_000_000
 
 
 # utils  
