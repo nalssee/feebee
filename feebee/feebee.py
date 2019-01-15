@@ -256,7 +256,6 @@ def _execute(c, job):
             with _connect(succeeded_dbfiles[0]) as c1:
                 ocols = c1._cols(f"select * from {job['output']}")
             c._cursor.execute(_create_statement(job['output'], ocols))
-            
         # collect tables from dbfiles 
         for dbfile in succeeded_dbfiles:
             c._cursor.execute(f"attach database '{dbfile}' as {tcon}")
@@ -314,7 +313,6 @@ def _execute(c, job):
                 select _ROWID_ from {ttable} 
                 where {build_wheres(breaks)} group by {job['by']} having MAX(_ROWID_)
                 """)] + [tsize]
-
                 
                 for (a, b), dbfile in zip(zip(newbreaks, newbreaks[1:]), dbfiles):
                     c._cursor.execute(f"attach database '{dbfile}' as {tcon}")
@@ -328,7 +326,6 @@ def _execute(c, job):
                     c._cursor.execute(f"detach database {tcon}")
             
                 def _proc(dbfile):
-                    print('aaaaaaaaaaaaa', multiprocessing.current_process().name)
                     def gen(query, c):
                         seq = c._conn.cursor().execute(query)
                         wh = job['where']
@@ -337,37 +334,72 @@ def _execute(c, job):
                         for _, rs in groupby(seq, _build_keyfn(job['by'])):
                             yield list(rs)
                     if isinstance(dbfile, int):
-                        print('aaaaaaaaaaaaa', multiprocessing.current_process().name)
                         query = f"select * from {ttable} where _ROWID_ <= {dbfile}"
-                        seq = applyfn(job['fn'], gen(query, c), job['arg'])
+                        dbfile = _DBNAME
+                    else:
+                        query = f"select * from {ttable}"
+
+                    with _connect(dbfile) as c1:
+                        seq = applyfn(job['fn'], gen(query, c1), job['arg'])
                         try:
-                            c.insert(seq, job['output'])
+                            c1.insert(seq, job['output'])
                         except NoRowToInsert:
                             pass
 
-                        pass
-                    else:
-                        query = f"select * from {ttable}"
-                        with _connect(dbfile) as c1:
-                            seq = applyfn(job['fn'], gen(query, c1), job['arg'])
-                            try:
-                                c1.insert(seq, job['output'])
-                            except NoRowToInsert:
-                                pass
-
-                exe = Pool(len(dbfiles)) 
-                print('hello')
-                exe.map(_proc, [0] + dbfiles)
+                exe = Pool(len(dbfiles) + 1) 
+                exe.map(_proc, [newbreaks[0]] + dbfiles)
                 collect_tables(dbfiles)
 
             finally:
                 for dbfile in dbfiles:
                     if os.path.exists(dbfile):
                         os.remove(dbfile)
+                c.drop(ttable)
     
-        # # non group parallel work
-        elif job['parallel'] and (not job['by']) and max_workers > 1: 
-            pass
+        # non group parallel work
+        elif job['parallel'] and (not job['by']) and tsize >= max_workers and max_workers > 1: 
+            try:
+                for (a, b), dbfile in zip(zip(breaks, breaks[1:] + [tsize]), dbfiles):
+                    c._cursor.execute(f"attach database '{dbfile}' as {tcon}")
+                    for prag in _pragmas(tcon):
+                        c._cursor.execute(prag)
+                    c._cursor.execute(f"""
+                    create table {tcon}.{ttable} as select * from {itable} 
+                    where _ROWID_ > {a} and _ROWID_ <= {b}
+                    """)
+                    c._conn.commit()
+                    c._cursor.execute(f"detach database {tcon}")
+
+                def _proc(dbfile):
+                    def gen(query, c):
+                        seq = c._conn.cursor().execute(query)
+                        wh = job['where']
+                        if wh:
+                            seq = (r for r in seq if wh(r))
+                        yield from seq
+
+                    if isinstance(dbfile, int):
+                        query = f"select * from {itable} where _ROWID_ <= {dbfile}"
+                        dbfile = _DBNAME
+                    else:
+                        query = f"select * from {ttable}"
+
+                    with _connect(dbfile) as c1:
+                        seq = applyfn(job['fn'], gen(query, c1), job['arg'])
+                        try:
+                            c1.insert(seq, job['output'])
+                        except NoRowToInsert:
+                            pass
+
+                exe = Pool(len(dbfiles) + 1) 
+                exe.map(_proc, [breaks[0]] + dbfiles)
+                collect_tables(dbfiles)
+
+            finally:
+                for dbfile in dbfiles:
+                    if os.path.exists(dbfile):
+                        os.remove(dbfile)
+ 
  
         else:
             seq = c.fetch(job['inputs'][0],job['where'], job['by'])

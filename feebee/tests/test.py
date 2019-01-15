@@ -366,7 +366,7 @@ class TestParallel(unittest.TestCase):
     def setUp(self):
         initialize()
 
-    def test_simple_parallel_work(self):
+    def test_simple_parallel_work_group(self):
         def add_yyyy(r):
             r['yyyymm'] = r['orderdate'][:7]
             r['yyyy'] = r['orderdate'][:4]
@@ -392,11 +392,34 @@ class TestParallel(unittest.TestCase):
             orders3 = fb.map(count, 'orders', by='yyyymm'),
             orders3s = fb.map(count, 'orders', by='yyyymm', parallel=True),
         )
+
         fb.run()
         with fb1._connect('test.db') as c:
             self.assertEqual(list(c.fetch('orders1')), list(c.fetch('orders1s')))
             self.assertEqual(list(c.fetch('orders2')), list(c.fetch('orders2s')))
             self.assertEqual(list(c.fetch('orders3')), list(c.fetch('orders3s')))
+
+    def test_simple_parallel_work_non_group(self):
+        def first_name(r):
+            r['first_name'] = r['CustomerName'].split()[0]
+            yield r 
+        
+        fb.CONFIG['max_workers'] = 4
+        fb.register(
+            customers = fb.load('customers.csv'),
+            customers1 = fb.map(first_name, 'customers'),
+            customers1s = fb.map(first_name, 'customers', parallel=True),
+
+            customers2 = fb.map(first_name, 'customers', 
+                                where=lambda r: isinstance(r['PostalCode'], int)),
+            customers2s = fb.map(first_name, 'customers', 
+                                where=lambda r: isinstance(r['PostalCode'], int), parallel=True),
+       )      
+        fb.run()
+        with fb1._connect('test.db') as c:
+            self.assertEqual(list(c.fetch('customers1')), list(c.fetch('customers1s')))
+            self.assertEqual(list(c.fetch('customers2')), list(c.fetch('customers2s')))
+ 
 
     def tearDown(self):
         remdb()
