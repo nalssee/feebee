@@ -97,16 +97,12 @@ class _Connection:
         # DO NOT reconfigure pragmas. Defaults are defaults for a reason.
         # You could make it faster but with a cost. It could corrupt the disk image of the database.
 
-    def fetch(self, tname, where=None, by=None):
-        query = f'select * from {tname}'
-        if by and by.strip() != '*':
-            query += " order by " + by
-
+    def fetch(self, query, where=None, by=None):
+        if by and by != ['*']:
+            query += " order by " + ','.join(by)
         rows = self._conn.cursor().execute(query)
-
         if where:
             rows = (r for r in rows if where(r))
-
         if by:
             gby = groupby(rows, _build_keyfn(by))
             yield from (list(rs) for _, rs in gby)
@@ -265,12 +261,45 @@ def _execute(c, job):
             # Rather expensive 
             tsize = c._size(itable) 
             breaks = [int(i * tsize / max_workers) for i in range(1, max_workers)] 
+            bys = _listify(job['by']) if job['by'] else None
+            exe = Pool(len(dbfiles) + 1) 
+
+            def _proc(dbfile):
+                source = ttable if bys else itable
+                if isinstance(dbfile, int):
+                    query = f"select * from {source} where _ROWID_ <= {dbfile}"
+                    dbfile = _DBNAME
+                else:
+                    query = f"select * from {source}"
+
+                with _connect(dbfile) as c1:
+                    seq = applyfn(job['fn'], c1.fetch(query, where=job['where'], by=bys), job['arg'])
+                    try:
+                        c1.insert(seq, job['output'])
+                    except NoRowToInsert:
+                        pass
+
+            def _delete_dbfiles(dbfiles):
+                with _delayed_keyboard_interrupts():
+                    for dbfile in dbfiles:
+                        if os.path.exists(dbfile):
+                            os.remove(dbfile)
+                    c.drop(ttable)
             
+            def _split_table(source_table, breaks, dbfiles):
+                for (a, b), dbfile in zip(zip(breaks, breaks[1:] + [tsize]), dbfiles):
+                    c._cursor.execute(f"attach database '{dbfile}' as {tcon}")
+                    c._cursor.execute(f"""
+                    create table {tcon}.{source_table} as select * from {source_table} 
+                    where _ROWID_ > {a} and _ROWID_ <= {b}
+                    """)
+                    c._conn.commit()
+                    c._cursor.execute(f"detach database {tcon}")
+           
         # condition for parallel work by group
         if job['parallel'] and job['by'] and job['by'].strip() != '*' and \
             tsize >= max_workers and max_workers > 1: 
             try:
-                bys = _listify(job['by'])
 
                 c._cursor.execute(f"""
                 create table {ttable} as select * from {itable} order by {','.join(bys)}
@@ -292,94 +321,24 @@ def _execute(c, job):
                 select _ROWID_ from {ttable} 
                 where {build_wheres(breaks)} group by {','.join(bys)} having MAX(_ROWID_)
                 """)] + [tsize]
-                
-                for (a, b), dbfile in zip(zip(newbreaks, newbreaks[1:]), dbfiles):
-                    c._cursor.execute(f"attach database '{dbfile}' as {tcon}")
-                    c._cursor.execute(f"""
-                    create table {tcon}.{ttable} as select * from {ttable} 
-                    where _ROWID_ > {a} and _ROWID_ <= {b}
-                    """)
-                    c._conn.commit()
-                    c._cursor.execute(f"detach database {tcon}")
-            
-                def _proc(dbfile):
-                    def gen(query, c):
-                        seq = c._conn.cursor().execute(query)
-                        wh = job['where']
-                        if wh:
-                            seq = (r for r in seq if wh(r))
-                        for _, rs in groupby(seq, _build_keyfn(bys)):
-                            yield list(rs)
 
-                    if isinstance(dbfile, int):
-                        query = f"select * from {ttable} where _ROWID_ <= {dbfile}"
-                        dbfile = _DBNAME
-                    else:
-                        query = f"select * from {ttable}"
-
-                    with _connect(dbfile) as c1:
-                        seq = applyfn(job['fn'], gen(query, c1), job['arg'])
-                        try:
-                            c1.insert(seq, job['output'])
-                        except NoRowToInsert:
-                            pass
-
-                exe = Pool(len(dbfiles) + 1) 
+                _split_table(ttable, newbreaks, dbfiles)
                 exe.map(_proc, [newbreaks[0]] + dbfiles)
                 collect_tables(dbfiles)
-
             finally:
-                with _delayed_keyboard_interrupts():
-                    for dbfile in dbfiles:
-                        if os.path.exists(dbfile):
-                            os.remove(dbfile)
-                    c.drop(ttable)
-        
+                _delete_dbfiles(dbfiles)
+       
         # non group parallel work
         elif job['parallel'] and (not job['by']) and tsize >= max_workers and max_workers > 1: 
             try:
-                for (a, b), dbfile in zip(zip(breaks, breaks[1:] + [tsize]), dbfiles):
-                    c._cursor.execute(f"attach database '{dbfile}' as {tcon}")
-                    c._cursor.execute(f"""
-                    create table {tcon}.{ttable} as select * from {itable} 
-                    where _ROWID_ > {a} and _ROWID_ <= {b}
-                    """)
-                    c._conn.commit()
-                    c._cursor.execute(f"detach database {tcon}")
-
-                def _proc(dbfile):
-                    def gen(query, c):
-                        seq = c._conn.cursor().execute(query)
-                        wh = job['where']
-                        if wh:
-                            seq = (r for r in seq if wh(r))
-                        yield from seq
-
-                    if isinstance(dbfile, int):
-                        query = f"select * from {itable} where _ROWID_ <= {dbfile}"
-                        dbfile = _DBNAME
-                    else:
-                        query = f"select * from {ttable}"
-
-                    with _connect(dbfile) as c1:
-                        seq = applyfn(job['fn'], gen(query, c1), job['arg'])
-                        try:
-                            c1.insert(seq, job['output'])
-                        except NoRowToInsert:
-                            pass
-
-                exe = Pool(len(dbfiles) + 1) 
+                _split_table(itable, breaks, dbfiles)
                 exe.map(_proc, [breaks[0]] + dbfiles)
                 collect_tables(dbfiles)
-
             finally:
-                with _delayed_keyboard_interrupts():
-                    for dbfile in dbfiles:
-                        if os.path.exists(dbfile):
-                            os.remove(dbfile)
- 
+                _delete_dbfiles(dbfiles)
+
         else:
-            seq = c.fetch(job['inputs'][0],job['where'], job['by'])
+            seq = c.fetch(f"select * from {job['inputs'][0]}", job['where'], _listify(job['by']))
             seq1 = applyfn(job['fn'], seq, job['arg'])
             c.insert(seq1, job['output'])
 
@@ -389,7 +348,7 @@ def _execute(c, job):
     elif cmd == 'union':
         def gen():
             for input in job['inputs']:
-                for r in c.fetch(input):
+                for r in c.fetch(f"select * from {input}"):
                     yield r
         c.insert(gen(), job['output'])
 
@@ -574,47 +533,17 @@ def _random_string(nchars):
 
 
 def _peek_first(seq):
-    """
-    Note:
-        peeked first item is pushed back to the sequence
-    Args:
-        seq (Iter[type])
-    Returns:
-        Tuple(type, Iter[type])
-    """
     # never use tee, it'll eat up all of your memory
     seq1 = iter(seq)
     first_item = next(seq1)
     return first_item, chain([first_item], seq1)
 
 
-# performance doesn't matter for this, most of the time
 def _listify(x):
-    """
-    Example:
-        >>> listify('a, b, c')
-        ['a', 'b', 'c']
-
-        >>> listify(3)
-        [3]
-
-        >>> listify([1, 2])
-        [1, 2]
-    """
-    try:
-        return [x1.strip() for x1 in x.split(',')]
-    except AttributeError:
-        try:
-            return list(iter(x))
-        except TypeError:
-            return [x]
+    return ([x1.strip() for x1 in x.split(',')] if isinstance(x, str) else x)
 
 
 def _build_keyfn(key):
-    " if key is a string return a key function "
-    # if the key is already a function, just return it
-    if hasattr(key, '__call__'):
-        return key
     colnames = _listify(key)
     # special case
     if colnames == ['*']:

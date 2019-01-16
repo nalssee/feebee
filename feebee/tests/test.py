@@ -53,20 +53,20 @@ class TestLoading(unittest.TestCase):
         fb.register(orders = fb.load('orders.csv'))
         fb.run()
         with fb1._connect('test.db') as c:
-            self.assertEqual(len(list(c.fetch('orders'))), nlines_file('orders.csv') - 1)
+            self.assertEqual(len(list(fet(c, 'orders'))), nlines_file('orders.csv') - 1)
 
     # TODO: some of the other options like encoding must be tested
     def test_loading_ordinary_tsv(self):
         fb.register(markit = fb.load('markit.tsv'))
         fb.run()
         with fb1._connect('test.db') as c:
-            self.assertEqual(len(list(c.fetch('markit'))), nlines_file('markit.tsv') - 1)
+            self.assertEqual(len(list(fet(c, 'markit'))), nlines_file('markit.tsv') - 1)
 
     def test_loading_semicolon_separated_file(self):
         fb.register(orders1 = fb.load('orders1.txt', delimiter=";"))
         fb.run()
         with fb1._connect('test.db') as c:
-            self.assertEqual(len(list(c.fetch('orders1'))), nlines_file('orders1.txt') - 1)
+            self.assertEqual(len(list(fet(c, 'orders1'))), nlines_file('orders1.txt') - 1)
             with open('orders1.txt') as f:
                 self.assertEqual(f.readline()[:-1].split(";"),
                                  c._cols('select * from orders1'))
@@ -94,7 +94,7 @@ class TestLoading(unittest.TestCase):
         )
         fb.run()
         with fb1._connect('test.db') as c:
-            self.assertEqual(len(list(c.fetch('crime'))), 2725)
+            self.assertEqual(len(list(fet(c, 'crime'))), 2725)
 
     def test_loading_seq(self):
         def add3(r):
@@ -132,7 +132,7 @@ class TestMap(unittest.TestCase):
         with fb1._connect('test.db') as c:
             self.assertEqual(len(c._cols('select * from orders')) + 2, 
                              len(c._cols('select * from orders1')))
-            self.assertEqual(sum(1 for _ in c.fetch('orders1')), 44)
+            self.assertEqual(sum(1 for _ in fet(c, 'orders1')), 44)
 
     def test_group_by(self):
         def bigmarket(rs, a):
@@ -155,7 +155,7 @@ class TestMap(unittest.TestCase):
         fb.run()
 
         with fb1._connect('test.db') as c:
-            self.assertEqual(list(c.fetch('customers1')), list(c.fetch('customers2')))
+            self.assertEqual(list(fet(c, 'customers1')), list(fet(c, 'customers2')))
     
 
     def test_insert_empty_rows(self):
@@ -165,7 +165,7 @@ class TestMap(unittest.TestCase):
         fb.run()
         with self.assertRaises(sqlite3.OperationalError):
             with fb1._connect('test.db') as c:
-                list(c.fetch('orders1'))
+                list(fet(c, 'orders1'))
 
     def tearDown(self):
         remdb()
@@ -192,7 +192,7 @@ class TestMapErrornousInsertion(unittest.TestCase):
         # orders1 is not created
         with self.assertRaises(sqlite3.OperationalError):
             with fb1._connect('test.db') as c:
-                list(c.fetch('orders1'))
+                list(fet(c, 'orders1'))
 
     def test_insert_1col_deleted(self):
         def errornous1(rs):
@@ -206,9 +206,9 @@ class TestMapErrornousInsertion(unittest.TestCase):
         # orders1 is not created
         with self.assertRaises(sqlite3.OperationalError):
          with fb1._connect('test.db') as c:
-            for r in c.fetch('orders1'):
+            for r in fet(c, 'orders1'):
                 print(r)
-            list(c.fetch('orders1'))
+            list(fet(c, 'orders1'))
 
 
     def test_insert_1col_added(self):
@@ -222,7 +222,7 @@ class TestMapErrornousInsertion(unittest.TestCase):
         fb.register(orders1=fb.map(errornous1, 'orders', by='*'))
         fb.run()
         with fb1._connect('test.db') as c:
-            x1, x2 = list(c.fetch('orders1'))
+            x1, x2 = list(fet(c, 'orders1'))
             self.assertEqual(x1, x2)
 
     def tearDown(self):
@@ -233,7 +233,6 @@ class TestMapErrornousInsertion(unittest.TestCase):
 class TestUnion(unittest.TestCase):
     def setUp(self):
         initialize()
-
 
     def test_simple_union(self):
         fb.register(
@@ -246,7 +245,7 @@ class TestUnion(unittest.TestCase):
         fb.run()
 
         with fb1._connect('test.db') as c:
-            self.assertEqual(len(list(c.fetch('orders'))) * 2, len(list(c.fetch('orders2'))))
+            self.assertEqual(len(list(fet(c, 'orders'))) * 2, len(list(fet(c, 'orders2'))))
 
     def tearDown(self):
         remdb()
@@ -353,7 +352,7 @@ class TestIntegratedProcess(unittest.TestCase):
 
         with fb1._connect('test.db') as c:
             xs = []
-            for r in c.fetch('orders_avg_nmonth'):
+            for r in fet(c, 'orders_avg_nmonth'):
                 if isinstance(r['avg'], float) or isinstance(r['avg'], int):
                     xs.append(xs)
             self.assertEqual(len(xs), 9)
@@ -395,9 +394,9 @@ class TestParallel(unittest.TestCase):
 
         fb.run()
         with fb1._connect('test.db') as c:
-            self.assertEqual(list(c.fetch('orders1')), list(c.fetch('orders1s')))
-            self.assertEqual(list(c.fetch('orders2')), list(c.fetch('orders2s')))
-            self.assertEqual(list(c.fetch('orders3')), list(c.fetch('orders3s')))
+            self.assertEqual(list(fet(c, 'orders1')), list(fet(c, 'orders1s')))
+            self.assertEqual(list(fet(c, 'orders2')), list(fet(c, 'orders2s')))
+            self.assertEqual(list(fet(c, 'orders3')), list(fet(c, 'orders3s')))
 
     def test_simple_parallel_work_non_group(self):
         def first_name(r):
@@ -417,8 +416,8 @@ class TestParallel(unittest.TestCase):
        )      
         fb.run()
         with fb1._connect('test.db') as c:
-            self.assertEqual(list(c.fetch('customers1')), list(c.fetch('customers1s')))
-            self.assertEqual(list(c.fetch('customers2')), list(c.fetch('customers2s')))
+            self.assertEqual(list(fet(c, 'customers1')), list(fet(c, 'customers1s')))
+            self.assertEqual(list(fet(c, 'customers2')), list(fet(c, 'customers2s')))
  
 
     def tearDown(self):
@@ -437,6 +436,10 @@ def add(**kwargs):
             r[k] = v(r)
         return r
     return fn
+
+
+def fet(c, tname):
+    yield from c.fetch(f"select * from {tname}")
 
 
 if __name__ == "__main__":
