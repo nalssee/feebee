@@ -212,36 +212,14 @@ def _flatten(seq):
             yield from x
 
 
+def _applyfn(fn, seq, arg):
+    if arg:
+        yield from _flatten(fn(rs, arg) for rs in seq)
+    else:
+        yield from _flatten(fn(rs) for rs in seq) 
+
+
 def _execute(c, job):
-    def applyfn(fn, seq, arg):
-        if arg:
-            yield from _flatten(fn(rs, arg) for rs in seq)
-        else:
-            yield from _flatten(fn(rs) for rs in seq) 
-
-    def collect_tables(dbfiles):
-        succeeded_dbfiles = []
-        for dbfile in dbfiles:
-            with _connect(dbfile) as c1:
-                if job['output'] in c1.get_tables():
-                    succeeded_dbfiles.append(dbfile)
-
-        if succeeded_dbfiles == [] and (job['output'] not in c.get_tables()):
-            raise NoRowToInsert
-
-        if job['output'] not in c.get_tables():
-            with _connect(succeeded_dbfiles[0]) as c1:
-                ocols = c1._cols(f"select * from {job['output']}")
-            c._cursor.execute(_create_statement(job['output'], ocols))
-        # collect tables from dbfiles 
-        for dbfile in succeeded_dbfiles:
-            c._cursor.execute(f"attach database '{dbfile}' as {tcon}")
-            c._cursor.execute(f"""
-            insert into {job['output']} select * from {tcon}.{job['output']}
-            """)
-            c._conn.commit()
-            c._cursor.execute(f"detach database {tcon}")
-
     cmd = job['cmd']
     if cmd == 'load':
         c.load(job['file'], job['output'], delimiter=job['delimiter'],
@@ -264,28 +242,6 @@ def _execute(c, job):
             bys = _listify(job['by']) if job['by'] else None
             exe = Pool(len(dbfiles) + 1) 
 
-            def _proc(dbfile):
-                source = ttable if bys else itable
-                if isinstance(dbfile, int):
-                    query = f"select * from {source} where _ROWID_ <= {dbfile}"
-                    dbfile = _DBNAME
-                else:
-                    query = f"select * from {source}"
-
-                with _connect(dbfile) as c1:
-                    seq = applyfn(job['fn'], c1.fetch(query, where=job['where'], by=bys), job['arg'])
-                    try:
-                        c1.insert(seq, job['output'])
-                    except NoRowToInsert:
-                        pass
-
-            def _delete_dbfiles(dbfiles):
-                with _delayed_keyboard_interrupts():
-                    for dbfile in dbfiles:
-                        if os.path.exists(dbfile):
-                            os.remove(dbfile)
-                    c.drop(ttable)
-            
             def _split_table(source_table, breaks, dbfiles):
                 for (a, b), dbfile in zip(zip(breaks, breaks[1:] + [tsize]), dbfiles):
                     c._cursor.execute(f"attach database '{dbfile}' as {tcon}")
@@ -295,7 +251,52 @@ def _execute(c, job):
                     """)
                     c._conn.commit()
                     c._cursor.execute(f"detach database {tcon}")
-           
+
+            def _proc(dbfile):
+                source = ttable if bys else itable
+                if isinstance(dbfile, int):
+                    query = f"select * from {source} where _ROWID_ <= {dbfile}"
+                    dbfile = _DBNAME
+                else:
+                    query = f"select * from {source}"
+
+                with _connect(dbfile) as c1:
+                    seq = _applyfn(job['fn'], c1.fetch(query, where=job['where'], by=bys), job['arg'])
+                    try:
+                        c1.insert(seq, job['output'])
+                    except NoRowToInsert:
+                        pass
+
+            def _collect_tables(dbfiles):
+                succeeded_dbfiles = []
+                for dbfile in dbfiles:
+                    with _connect(dbfile) as c1:
+                        if job['output'] in c1.get_tables():
+                            succeeded_dbfiles.append(dbfile)
+
+                if succeeded_dbfiles == [] and (job['output'] not in c.get_tables()):
+                    raise NoRowToInsert
+
+                if job['output'] not in c.get_tables():
+                    with _connect(succeeded_dbfiles[0]) as c1:
+                        ocols = c1._cols(f"select * from {job['output']}")
+                    c._cursor.execute(_create_statement(job['output'], ocols))
+                # collect tables from dbfiles 
+                for dbfile in succeeded_dbfiles:
+                    c._cursor.execute(f"attach database '{dbfile}' as {tcon}")
+                    c._cursor.execute(f"""
+                    insert into {job['output']} select * from {tcon}.{job['output']}
+                    """)
+                    c._conn.commit()
+                    c._cursor.execute(f"detach database {tcon}")
+
+            def _delete_dbfiles(dbfiles):
+                with _delayed_keyboard_interrupts():
+                    for dbfile in dbfiles:
+                        if os.path.exists(dbfile):
+                            os.remove(dbfile)
+                    c.drop(ttable)
+        
         # condition for parallel work by group
         if job['parallel'] and job['by'] and job['by'].strip() != '*' and \
             tsize >= max_workers and max_workers > 1: 
@@ -324,7 +325,7 @@ def _execute(c, job):
 
                 _split_table(ttable, newbreaks, dbfiles)
                 exe.map(_proc, [newbreaks[0]] + dbfiles)
-                collect_tables(dbfiles)
+                _collect_tables(dbfiles)
             finally:
                 _delete_dbfiles(dbfiles)
        
@@ -333,13 +334,13 @@ def _execute(c, job):
             try:
                 _split_table(itable, breaks, dbfiles)
                 exe.map(_proc, [breaks[0]] + dbfiles)
-                collect_tables(dbfiles)
+                _collect_tables(dbfiles)
             finally:
                 _delete_dbfiles(dbfiles)
 
         else:
             seq = c.fetch(f"select * from {job['inputs'][0]}", job['where'], _listify(job['by']))
-            seq1 = applyfn(job['fn'], seq, job['arg'])
+            seq1 = _applyfn(job['fn'], seq, job['arg'])
             c.insert(seq1, job['output'])
 
     elif cmd == 'join':
