@@ -10,7 +10,6 @@ import logging
 
 from contextlib import contextmanager
 from itertools import groupby, chain
-from shutil import copyfile
 import psutil
 
 import pandas as pd
@@ -215,7 +214,7 @@ def _flatten(seq):
             yield x
         else:
             yield from x
-import multiprocessing
+
 
 def _execute(c, job):
     def applyfn(fn, seq, arg):
@@ -274,7 +273,7 @@ def _execute(c, job):
                 bys = _listify(job['by'])
 
                 c._cursor.execute(f"""
-                create table {ttable} as select * from {itable} order by {job['by']}
+                create table {ttable} as select * from {itable} order by {','.join(bys)}
                 """)
 
                 def nth_gcols(n):
@@ -291,7 +290,7 @@ def _execute(c, job):
                 # don't use r['_rowid_'] here
                 newbreaks = [list(r.values())[0] for r in c._cursor.execute(f"""
                 select _ROWID_ from {ttable} 
-                where {build_wheres(breaks)} group by {job['by']} having MAX(_ROWID_)
+                where {build_wheres(breaks)} group by {','.join(bys)} having MAX(_ROWID_)
                 """)] + [tsize]
                 
                 for (a, b), dbfile in zip(zip(newbreaks, newbreaks[1:]), dbfiles):
@@ -309,8 +308,9 @@ def _execute(c, job):
                         wh = job['where']
                         if wh:
                             seq = (r for r in seq if wh(r))
-                        for _, rs in groupby(seq, _build_keyfn(job['by'])):
+                        for _, rs in groupby(seq, _build_keyfn(bys)):
                             yield list(rs)
+
                     if isinstance(dbfile, int):
                         query = f"select * from {ttable} where _ROWID_ <= {dbfile}"
                         dbfile = _DBNAME
@@ -329,11 +329,12 @@ def _execute(c, job):
                 collect_tables(dbfiles)
 
             finally:
-                for dbfile in dbfiles:
-                    if os.path.exists(dbfile):
-                        os.remove(dbfile)
-                c.drop(ttable)
-    
+                with _delayed_keyboard_interrupts():
+                    for dbfile in dbfiles:
+                        if os.path.exists(dbfile):
+                            os.remove(dbfile)
+                    c.drop(ttable)
+        
         # non group parallel work
         elif job['parallel'] and (not job['by']) and tsize >= max_workers and max_workers > 1: 
             try:
@@ -372,10 +373,10 @@ def _execute(c, job):
                 collect_tables(dbfiles)
 
             finally:
-                for dbfile in dbfiles:
-                    if os.path.exists(dbfile):
-                        os.remove(dbfile)
- 
+                with _delayed_keyboard_interrupts():
+                    for dbfile in dbfiles:
+                        if os.path.exists(dbfile):
+                            os.remove(dbfile)
  
         else:
             seq = c.fetch(job['inputs'][0],job['where'], job['by'])
@@ -384,6 +385,7 @@ def _execute(c, job):
 
     elif cmd == 'join':
         c.join(job['args'], job['output'])
+
     elif cmd == 'union':
         def gen():
             for input in job['inputs']:
@@ -452,16 +454,17 @@ def run():
         return tables
 
     # depth first search
-    def dfs(data, path, paths=[]):
+    def dfs(graph, path, paths=[]):
         datum = path[-1]
-        if datum in data:
-            for val in data[datum]:
+        if datum in graph:
+            for val in graph[datum]:
                 new_path = path + [val]
-                paths = dfs(data, new_path, paths)
+                paths = dfs(graph, new_path, paths)
         else:
             paths += [path]
         return paths
 
+    # graph: {input: [out1, out2, ...]}
     def build_graph(jobs):
         graph = {}
         for job in jobs:
@@ -543,9 +546,6 @@ def run():
                         logger.error(f"Failed: {job['output']}")
                         logger.error(f"{type(e).__name__}: {e}")
                         try:
-                            # TODO: Sometimes "database locked" error is raised
-                            # but drops the table anyway. No idea why.
-                            # Not OS specific
                             c.drop(job['output'])
                         except Exception:
                             pass
