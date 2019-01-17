@@ -18,9 +18,13 @@ from graphviz import Digraph
 from more_itertools import spy, chunked 
 from pathos.multiprocessing import ProcessingPool as Pool
 
+
+_locale = 'English_United States.1252' if os.name == 'nt' else 'en_US.UTF-8'
+
 CONFIG = {
     'ws': '',
     'max_workers': psutil.cpu_count(logical=False),
+    'locale': _locale,
 }
 
 _filename, _ = os.path.splitext(os.path.basename(sys.argv[0]))
@@ -37,11 +41,6 @@ coloredlogs.install(
 )
 
 logger = logging.getLogger(__name__)
-
-if os.name == 'nt':
-    locale.setlocale(locale.LC_ALL, 'English_United States.1252')
-else:
-    locale.setlocale(locale.LC_ALL, 'en_US.UTF-8')
 
 
 # TODO: better error messages
