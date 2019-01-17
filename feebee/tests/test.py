@@ -156,7 +156,30 @@ class TestMap(unittest.TestCase):
 
         with fb1._connect('test.db') as c:
             self.assertEqual(list(fet(c, 'customers1')), list(fet(c, 'customers2')))
-    
+
+    def test_group_n(self):
+        fb.register(
+            orders1 = fb.map(lambda rs: {'a': len(rs)}, 'orders', by=10)
+        )
+        fb.run()
+        with fb1._connect('test.db') as c:
+            self.assertEqual(len(fet(c, 'orders')), sum(r['a'] for r in fet(c, 'orders1')))
+
+    # all of them at once
+    def test_group_star(self):
+        fb.register(
+            orders1 = fb.map(lambda rs: rs, 'orders', by=' * '),
+        )
+        fb.run()
+        with fb1._connect('test.db') as c:
+            self.assertEqual(fet(c, 'orders'), fet(c, 'orders1'))
+        
+    def test_group_invalid(self):
+        fb.register(
+            orders1 = fb.map(lambda rs: {'a': 10}, 'orders', by=10.0),
+        )
+        _, undone = fb.run()
+        self.assertEqual([x['output'] for x in undone], ['orders1'])
 
     def test_insert_empty_rows(self):
         fb.register(
@@ -439,7 +462,7 @@ def add(**kwargs):
 
 
 def fet(c, tname):
-    yield from c.fetch(f"select * from {tname}")
+    return list(c.fetch(f"select * from {tname}"))
 
 
 if __name__ == "__main__":

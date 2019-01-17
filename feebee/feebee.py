@@ -7,16 +7,16 @@ import random
 import string
 import signal
 import logging
-
 from contextlib import contextmanager
 from itertools import groupby, chain
-import psutil
 
+import coloredlogs
+import psutil
 import pandas as pd
 from sas7bdat import SAS7BDAT
 from graphviz import Digraph
+from more_itertools import spy, chunked 
 from pathos.multiprocessing import ProcessingPool as Pool
-
 
 CONFIG = {
     'ws': '',
@@ -30,11 +30,12 @@ _JOBS = {}
 # folder name (in workspace) for temporary databases for parallel work 
 _TEMP = "_temp"
 
-logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s %(levelname)s %(module)s - %(message)s',
+coloredlogs.DEFAULT_FIELD_STYLES['levelname']['color'] = 'cyan'
+coloredlogs.install(
+    fmt='%(asctime)s %(levelname)s %(message)s',
     datefmt="%Y-%m-%d %H:%M:%S"
 )
+
 logger = logging.getLogger(__name__)
 
 if os.name == 'nt':
@@ -43,11 +44,14 @@ else:
     locale.setlocale(locale.LC_ALL, 'en_US.UTF-8')
 
 
+# TODO: better error messages
 class FeebeeError(Exception):
     pass
 
-
 class NoRowToInsert(FeebeeError):
+    pass
+
+class InvalidGroup(FeebeeError):
     pass
 
 
@@ -98,26 +102,30 @@ class _Connection:
         # You could make it faster but with a cost. It could corrupt the disk image of the database.
 
     def fetch(self, query, where=None, by=None):
-        if by and by != ['*']:
+        if by and isinstance(by, list) and by != ['*'] and all(isinstance(c, str) for c in by):
             query += " order by " + ','.join(by)
         rows = self._conn.cursor().execute(query)
         if where:
             rows = (r for r in rows if where(r))
         if by:
-            gby = groupby(rows, _build_keyfn(by))
-            yield from (list(rs) for _, rs in gby)
+            if isinstance(by, list):
+                rows1 = (list(rs) for _, rs in groupby(rows, _build_keyfn(by)))
+            elif isinstance(by, int):
+                rows1 = chunked(rows, by)
+            else:
+                raise InvalidGroup(by)
+            yield from rows1
         else:
             yield from rows
 
     def insert(self, rs, name):
-        try:
-            r0, rs = _peek_first(rs)
-        except StopIteration as e:
-            raise NoRowToInsert from e
+        r0, rs = spy(rs)
+        if r0 == []:
+            raise NoRowToInsert(name)
 
-        cols = list(r0)
+        cols = list(r0[0])
         self._cursor.execute(_create_statement(name, cols))
-        istmt = _insert_statement(name, r0)
+        istmt = _insert_statement(name, r0[0])
         self._cursor.executemany(istmt, rs) 
 
     def load(self, filename, name, delimiter=None, quotechar='"', 
@@ -510,7 +518,7 @@ def run():
                         except Exception:
                             pass
 
-                        logger.info(f"Unfinished: {[job['output'] for job in jobs_to_do]}")
+                        logger.warning(f"Unfinished: {[job['output'] for job in jobs_to_do]}")
                         return (initial_jobs_to_do, jobs_to_do)
                     del jobs_to_do[i]
                     cnt += 1
@@ -533,15 +541,13 @@ def _random_string(nchars):
                    for _ in range(nchars))
 
 
-def _peek_first(seq):
-    # never use tee, it'll eat up all of your memory
-    seq1 = iter(seq)
-    first_item = next(seq1)
-    return first_item, chain([first_item], seq1)
-
-
 def _listify(x):
-    return ([x1.strip() for x1 in x.split(',')] if isinstance(x, str) else x)
+    if isinstance(x, str):
+        return [x1.strip() for x1 in x.split(',')]
+    elif isinstance(x, tuple):
+        return list(x)
+    else:
+        return x
 
 
 def _build_keyfn(key):
