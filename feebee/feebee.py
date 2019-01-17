@@ -27,6 +27,8 @@ CONFIG = {
     'locale': _locale,
 }
 
+locale.setlocale(locale.LC_ALL, CONFIG['locale'])
+
 _filename, _ = os.path.splitext(os.path.basename(sys.argv[0]))
 _DBNAME = _filename + '.db'
 _GRAPH_NAME = _filename + '.gv'
@@ -234,8 +236,8 @@ def _execute(c, job):
     elif cmd == 'map':
         itable = job['inputs'][0]
         if job['parallel']:
-            max_workers = min(job['parallel'], psutil.cpu_count()) if job['parallel'] > 1 else\
-                          CONFIG['max_workers'] 
+            max_workers = int(job['parallel']) if job['parallel'] >= 2 else CONFIG['max_workers'] 
+            max_workers = min(max_workers, psutil.cpu_count())
             tdir = os.path.join(CONFIG['ws'], _TEMP)
             if not os.path.exists(tdir):
                 os.makedirs(tdir)
