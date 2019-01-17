@@ -22,7 +22,7 @@ import feebee.feebee as fb1
 # 5,Berglunds snabbköp,Christina Berglund,Berguvsvägen 8,Luleå,S-958 22,Sweden
 
 
-# orders.csv 파일은 대략 이렇게 생겼다
+# orders.csv 
 # orderid,customerid,employeeid,orderdate,shipperid
 # 10248,90,5,1996-07-04,3
 # 10249,81,6,1996-07-05,1
@@ -426,16 +426,15 @@ class TestParallel(unittest.TestCase):
             r['first_name'] = r['CustomerName'].split()[0]
             yield r 
         
-        fb.CONFIG['max_workers'] = 4
         fb.register(
             customers = fb.load('customers.csv'),
             customers1 = fb.map(first_name, 'customers'),
-            customers1s = fb.map(first_name, 'customers', parallel=True),
+            customers1s = fb.map(first_name, 'customers', parallel=4),
 
             customers2 = fb.map(first_name, 'customers', 
                                 where=lambda r: isinstance(r['PostalCode'], int)),
             customers2s = fb.map(first_name, 'customers', 
-                                where=lambda r: isinstance(r['PostalCode'], int), parallel=True),
+                                where=lambda r: isinstance(r['PostalCode'], int), parallel=3),
        )      
         fb.run()
         with fb1._connect('test.db') as c:
