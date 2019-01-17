@@ -8,14 +8,14 @@ import string
 import signal
 import logging
 from contextlib import contextmanager
-from itertools import groupby, chain
+from itertools import groupby
 
 import coloredlogs
 import psutil
 import pandas as pd
 from sas7bdat import SAS7BDAT
 from graphviz import Digraph
-from more_itertools import spy, chunked 
+from more_itertools import spy, chunked
 from pathos.multiprocessing import ProcessingPool as Pool
 
 
@@ -27,13 +27,11 @@ CONFIG = {
     'locale': _locale,
 }
 
-locale.setlocale(locale.LC_ALL, CONFIG['locale'])
-
 _filename, _ = os.path.splitext(os.path.basename(sys.argv[0]))
 _DBNAME = _filename + '.db'
 _GRAPH_NAME = _filename + '.gv'
 _JOBS = {}
-# folder name (in workspace) for temporary databases for parallel work 
+# folder name (in workspace) for temporary databases for parallel work
 _TEMP = "_temp"
 
 coloredlogs.DEFAULT_FIELD_STYLES['levelname']['color'] = 'cyan'
@@ -64,7 +62,7 @@ def _connect(dbfile):
     finally:
         # Trying to make closing atomic to handle multiple ctrl-cs
         # Imagine the first ctrl-c have the process enter the 'finally block'
-        # and the second ctrl-c interrupts the block in the middle 
+        # and the second ctrl-c interrupts the block in the middle
         # so that the database is corrupted
         with _delayed_keyboard_interrupts():
             # should I close the cursor?
@@ -75,10 +73,11 @@ def _connect(dbfile):
 
 @contextmanager
 def _delayed_keyboard_interrupts():
-    signal_received = False 
+    signal_received = []
 
     def handler(sig, frame):
-        signal_received = (sig, frame) 
+        nonlocal signal_received
+        signal_received = (sig, frame)
         logger.debug('SIGINT received. Delaying KeyboardInterrupt.')
     old_handler = signal.signal(signal.SIGINT, handler)
 
@@ -95,6 +94,7 @@ class _Connection:
         if not CONFIG['ws']:
             CONFIG['ws'] = os.getcwd()
         dbfile = os.path.join(CONFIG['ws'], dbfile)
+        locale.setlocale(locale.LC_ALL, CONFIG['locale'])
 
         self._conn = sqlite3.connect(dbfile)
         self._conn.row_factory = _dict_factory
@@ -127,9 +127,9 @@ class _Connection:
         cols = list(r0[0])
         self._cursor.execute(_create_statement(name, cols))
         istmt = _insert_statement(name, r0[0])
-        self._cursor.executemany(istmt, rs) 
+        self._cursor.executemany(istmt, rs)
 
-    def load(self, filename, name, delimiter=None, quotechar='"', 
+    def load(self, filename, name, delimiter=None, quotechar='"',
              encoding='utf-8', fn=None):
         if isinstance(filename, str):
             _, ext = os.path.splitext(filename)
@@ -142,7 +142,7 @@ class _Connection:
             else:
                 # default delimiter is ","
                 delimiter = delimiter or ("\t" if ext.lower() == ".tsv" else ",")
-                seq = _read_csv(filename, delimiter=delimiter, quotechar=quotechar, 
+                seq = _read_csv(filename, delimiter=delimiter, quotechar=quotechar,
                                 encoding=encoding)
         else:
             # iterator, since you can pass an iterator
@@ -150,7 +150,7 @@ class _Connection:
             seq = filename
 
         if fn:
-            seq = _flatten(fn(rs) for rs in seq) 
+            seq = _flatten(fn(rs) for rs in seq)
         self.insert(seq, name)
 
     def get_tables(self):
@@ -200,7 +200,7 @@ class _Connection:
 
     def _cols(self, query):
         return [c[0] for c in self._cursor.execute(query).description]
-    
+
     def _size(self, table):
         self._cursor.execute(f"select count(*) as c from {table}")
         return self._cursor.fetchone()['c']
@@ -225,7 +225,7 @@ def _applyfn(fn, seq, arg):
     if arg:
         yield from _flatten(fn(rs, arg) for rs in seq)
     else:
-        yield from _flatten(fn(rs) for rs in seq) 
+        yield from _flatten(fn(rs) for rs in seq)
 
 
 def _execute(c, job):
@@ -236,7 +236,7 @@ def _execute(c, job):
     elif cmd == 'map':
         itable = job['inputs'][0]
         if job['parallel']:
-            max_workers = int(job['parallel']) if job['parallel'] >= 2 else CONFIG['max_workers'] 
+            max_workers = int(job['parallel']) if job['parallel'] >= 2 else CONFIG['max_workers']
             max_workers = min(max_workers, psutil.cpu_count())
             tdir = os.path.join(CONFIG['ws'], _TEMP)
             if not os.path.exists(tdir):
@@ -245,17 +245,17 @@ def _execute(c, job):
 
             tcon = 'con' + _random_string(9)
             ttable = "tbl" + _random_string(9)
-            # Rather expensive 
-            tsize = c._size(itable) 
-            breaks = [int(i * tsize / max_workers) for i in range(1, max_workers)] 
+            # Rather expensive
+            tsize = c._size(itable)
+            breaks = [int(i * tsize / max_workers) for i in range(1, max_workers)]
             bys = _listify(job['by']) if job['by'] else None
-            exe = Pool(len(dbfiles) + 1) 
+            exe = Pool(len(dbfiles) + 1)
 
             def _split_table(source_table, breaks, dbfiles):
                 for (a, b), dbfile in zip(zip(breaks, breaks[1:] + [tsize]), dbfiles):
                     c._cursor.execute(f"attach database '{dbfile}' as {tcon}")
                     c._cursor.execute(f"""
-                    create table {tcon}.{source_table} as select * from {source_table} 
+                    create table {tcon}.{source_table} as select * from {source_table}
                     where _ROWID_ > {a} and _ROWID_ <= {b}
                     """)
                     c._conn.commit()
@@ -270,7 +270,8 @@ def _execute(c, job):
                     query = f"select * from {source}"
 
                 with _connect(dbfile) as c1:
-                    seq = _applyfn(job['fn'], c1.fetch(query, where=job['where'], by=bys), job['arg'])
+                    seq = _applyfn(job['fn'], c1.fetch(query, where=job['where'], by=bys),
+                                   job['arg'])
                     try:
                         c1.insert(seq, job['output'])
                     except NoRowToInsert:
@@ -290,7 +291,7 @@ def _execute(c, job):
                     with _connect(succeeded_dbfiles[0]) as c1:
                         ocols = c1._cols(f"select * from {job['output']}")
                     c._cursor.execute(_create_statement(job['output'], ocols))
-                # collect tables from dbfiles 
+                # collect tables from dbfiles
                 for dbfile in succeeded_dbfiles:
                     c._cursor.execute(f"attach database '{dbfile}' as {tcon}")
                     c._cursor.execute(f"""
@@ -305,10 +306,10 @@ def _execute(c, job):
                         if os.path.exists(dbfile):
                             os.remove(dbfile)
                     c.drop(ttable)
-        
+
         # condition for parallel work by group
         if job['parallel'] and job['by'] and job['by'].strip() != '*' and \
-            tsize >= max_workers and max_workers > 1: 
+            tsize >= max_workers and max_workers > 1:
             try:
 
                 c._cursor.execute(f"""
@@ -317,18 +318,18 @@ def _execute(c, job):
 
                 def nth_gcols(n):
                     c._cursor.execute(f"select * from {ttable} where _ROWID_ == {n} limit 1")
-                    r =  c._cursor.fetchone()
+                    r = c._cursor.fetchone()
                     return [r[c] for c in bys]
 
                 def where1(br):
                     return ' and '.join(f"{c} = {repr(v)}" for c, v in zip(bys, nth_gcols(br)))
-                
+
                 def build_wheres(breaks):
-                   return ' or '.join(where1(br) for br in breaks)
+                    return ' or '.join(where1(br) for br in breaks)
 
                 # don't use r['_rowid_'] here
                 newbreaks = [list(r.values())[0] for r in c._cursor.execute(f"""
-                select _ROWID_ from {ttable} 
+                select _ROWID_ from {ttable}
                 where {build_wheres(breaks)} group by {','.join(bys)} having MAX(_ROWID_)
                 """)] + [tsize]
 
@@ -337,9 +338,9 @@ def _execute(c, job):
                 _collect_tables(dbfiles)
             finally:
                 _delete_dbfiles(dbfiles)
-       
+
         # non group parallel work
-        elif job['parallel'] and (not job['by']) and tsize >= max_workers and max_workers > 1: 
+        elif job['parallel'] and (not job['by']) and tsize >= max_workers and max_workers > 1:
             try:
                 _split_table(itable, breaks, dbfiles)
                 exe.map(_proc, [breaks[0]] + dbfiles)
@@ -357,8 +358,8 @@ def _execute(c, job):
 
     elif cmd == 'union':
         def gen():
-            for input in job['inputs']:
-                for r in c.fetch(f"select * from {input}"):
+            for inp in job['inputs']:
+                for r in c.fetch(f"select * from {inp}"):
                     yield r
         c.insert(gen(), job['output'])
 
@@ -476,7 +477,7 @@ def run():
             missing_tables = get_missing_tables()
             result = []
             for job in jobs:
-                for table in (job['inputs'] + [job['output']]):
+                for table in job['inputs'] + [job['output']]:
                     if table in missing_tables:
                         result.append(job)
                         break
@@ -502,7 +503,7 @@ def run():
             delete_after(mt, paths)
 
         jobs_to_do = find_jobs_to_do(jobs)
-        initial_jobs_to_do = list(jobs_to_do) 
+        initial_jobs_to_do = list(jobs_to_do)
         logger.info(f'To Create: {[j["output"] for j in jobs_to_do]}')
         while jobs_to_do:
             cnt = 0
@@ -531,7 +532,7 @@ def run():
                         if t not in c.get_tables():
                             logger.warning(f'Table not found: {t}')
                 return (initial_jobs_to_do, jobs_to_do)
-        # All jobs done well 
+        # All jobs done well
         return (initial_jobs_to_do, jobs_to_do)
 
 
@@ -545,10 +546,9 @@ def _random_string(nchars):
 def _listify(x):
     if isinstance(x, str):
         return [x1.strip() for x1 in x.split(',')]
-    elif isinstance(x, tuple):
+    if isinstance(x, tuple):
         return list(x)
-    else:
-        return x
+    return x
 
 
 def _build_keyfn(key):
@@ -560,8 +560,7 @@ def _build_keyfn(key):
     if len(colnames) == 1:
         col = colnames[0]
         return lambda r: r[col]
-    else:
-        return lambda r: [r[colname] for colname in colnames]
+    return lambda r: [r[colname] for colname in colnames]
 
 
 # primary keys are too much for non-experts
@@ -581,7 +580,7 @@ def _create_statement(name, colnames):
 # column can contain spaces. So you must strip them all
 def _insert_statement(name, d):
     "insert into foo values (:a, :b, :c, ...)"
-    keycols = ', '.join(":" + c.strip() for c in d) 
+    keycols = ', '.join(":" + c.strip() for c in d)
     return "insert into %s values (%s)" % (name, keycols)
 
 
@@ -616,7 +615,7 @@ def _read_excel(filename):
     yield from _read_df(df)
 
 
-# raises a deprecation warning 
+# raises a deprecation warning
 def _read_stata(filename):
     filename = os.path.join(CONFIG['ws'], filename)
     chunk = 10_000
