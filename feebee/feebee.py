@@ -234,7 +234,7 @@ def _execute(c, job):
     elif cmd == 'map':
         itable = job['inputs'][0]
         if job['parallel']:
-            max_workers = CONFIG['max_workers'] 
+            max_workers = job['parallel'] if isinstance(job['parallel'], int) else CONFIG['max_workers'] 
 
             tdir = os.path.join(CONFIG['ws'], _TEMP)
             if not os.path.exists(tdir):
