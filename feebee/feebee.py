@@ -21,10 +21,11 @@ from pathos.multiprocessing import ProcessingPool as Pool
 
 _locale = 'English_United States.1252' if os.name == 'nt' else 'en_US.UTF-8'
 
-CONFIG = {
+_CONFIG = {
     'ws': '',
     'max_workers': psutil.cpu_count(logical=False),
     'locale': _locale,
+    'msg': True,
 }
 
 _filename, _ = os.path.splitext(os.path.basename(sys.argv[0]))
@@ -47,10 +48,16 @@ logger = logging.getLogger(__name__)
 class FeebeeError(Exception):
     pass
 
+
 class NoRowToInsert(FeebeeError):
     pass
 
+
 class InvalidGroup(FeebeeError):
+    pass
+
+
+class UnknownConfig(FeebeeError):
     pass
 
 
@@ -91,15 +98,16 @@ def _delayed_keyboard_interrupts():
 
 class _Connection:
     def __init__(self, dbfile):
-        if not CONFIG['ws']:
-            CONFIG['ws'] = os.getcwd()
-        dbfile = os.path.join(CONFIG['ws'], dbfile)
-        locale.setlocale(locale.LC_ALL, CONFIG['locale'])
+        if not _CONFIG['ws']:
+            _CONFIG['ws'] = os.getcwd()
+        dbfile = os.path.join(_CONFIG['ws'], dbfile)
+        locale.setlocale(locale.LC_ALL, _CONFIG['locale'])
+        logger.propagate = _CONFIG['msg'] 
 
         self._conn = sqlite3.connect(dbfile)
         self._conn.row_factory = _dict_factory
         self._cursor = self._conn.cursor()
-        # DO NOT reconfigure pragmas. Defaults are defaults for a reason.
+        # DO NOT re_CONFIGure pragmas. Defaults are defaults for a reason.
         # You could make it faster but with a cost. It could corrupt the disk image of the database.
 
     def fetch(self, query, where=None, by=None):
@@ -236,9 +244,9 @@ def _execute(c, job):
     elif cmd == 'map':
         itable = job['inputs'][0]
         if job['parallel']:
-            max_workers = int(job['parallel']) if job['parallel'] >= 2 else CONFIG['max_workers']
+            max_workers = int(job['parallel']) if job['parallel'] >= 2 else _CONFIG['max_workers']
             max_workers = min(max_workers, psutil.cpu_count())
-            tdir = os.path.join(CONFIG['ws'], _TEMP)
+            tdir = os.path.join(_CONFIG['ws'], _TEMP)
             if not os.path.exists(tdir):
                 os.makedirs(tdir)
             dbfiles = [os.path.join(_TEMP, _random_string(10)) for _ in range(max_workers - 1)]
@@ -409,7 +417,20 @@ def register(**kwargs):
     _JOBS.update(kwargs)
 
 
-def run():
+def run(**kwargs):
+    global _CONFIG
+    try:
+        default_configs = {k: v for k, v in _CONFIG.items()}
+        for k, v in kwargs.items():
+            if k not in _CONFIG:
+                raise UnknownConfig(k)
+            _CONFIG[k] = v
+        return _run()
+    finally:
+        _CONFIG = default_configs
+
+
+def _run():
     def append_output(kwargs):
         for k, v in kwargs.items():
             v['output'] = k
@@ -585,14 +606,14 @@ def _insert_statement(name, d):
 
 
 def _read_csv(filename, delimiter=',', quotechar='"', encoding='utf-8'):
-    with open(os.path.join(CONFIG['ws'], filename), encoding=encoding) as f:
+    with open(os.path.join(_CONFIG['ws'], filename), encoding=encoding) as f:
         header = [c.strip() for c in f.readline().split(delimiter)]
         yield from csv.DictReader(f, fieldnames=header,
                                   delimiter=delimiter, quotechar=quotechar)
 
 
 def _read_sas(filename):
-    filename = os.path.join(CONFIG['ws'], filename)
+    filename = os.path.join(_CONFIG['ws'], filename)
     with SAS7BDAT(filename) as f:
         reader = f.readlines()
         header = [c.strip() for c in next(reader)]
@@ -609,7 +630,7 @@ def _read_df(df):
 
 # this could be more complex but should it be?
 def _read_excel(filename):
-    filename = os.path.join(CONFIG['ws'], filename)
+    filename = os.path.join(_CONFIG['ws'], filename)
     # it's OK. Excel files are small
     df = pd.read_excel(filename)
     yield from _read_df(df)
@@ -617,7 +638,7 @@ def _read_excel(filename):
 
 # raises a deprecation warning
 def _read_stata(filename):
-    filename = os.path.join(CONFIG['ws'], filename)
+    filename = os.path.join(_CONFIG['ws'], filename)
     chunk = 10_000
     for xs in pd.read_stata(filename, chunksize=chunk):
         yield from _read_df(xs)

@@ -1,1 +1,1 @@
-from .feebee import register, run, load, map, join, union, CONFIG
+from .feebee import register, run, load, map, join, union

@@ -446,6 +446,20 @@ class TestParallel(unittest.TestCase):
         remdb()
 
 
+class TestLogMsg(unittest.TestCase):
+    def test_mute_log_messages(self):
+        remdb()
+        fb.register(
+            orders = fb.load('orders.csv'),
+            orders1 = fb.map(lambda r: r, 'orders'),
+        )
+        self.assertEqual(fb1._CONFIG['msg'], True)
+        # you can pass keyword args for configuration
+        fb.run(msg=False)
+        self.assertEqual(fb1._CONFIG['msg'], True)
+        remdb()
+
+
 # utils  
 def nlines_file(name):
     with open(name) as f:
