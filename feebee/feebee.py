@@ -249,7 +249,7 @@ def _execute(c, job):
             max_workers = int(job['parallel']) if job['parallel'] >= 2 else _CONFIG['max_workers']
             max_workers = min(max_workers, psutil.cpu_count())
             tsize = c._size(job['inputs'][0])
-        if job['parallel'] and job['by'] and job['by'].strip() != '*' and\
+        if job['parallel'] and (job['by'].strip() != '*' if job['by'] else True) and\
             max_workers > 1 and tsize >= max_workers:
             if platform.system() == 'Darwin':
                 _exec_parallel_map_darwin(c, job, max_workers, tsize)
