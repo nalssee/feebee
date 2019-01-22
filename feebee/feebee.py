@@ -7,6 +7,7 @@ import random
 import string
 import signal
 import logging
+import platform
 from contextlib import contextmanager
 from itertools import groupby
 
@@ -17,6 +18,8 @@ from sas7bdat import SAS7BDAT
 from graphviz import Digraph
 from more_itertools import spy, chunked
 from pathos.multiprocessing import ProcessingPool as Pool
+if platform.system() == "Darwin":
+    from shutil import copyfile
 
 
 _locale = 'English_United States.1252' if os.name == 'nt' else 'en_US.UTF-8'
@@ -242,120 +245,16 @@ def _execute(c, job):
         c.load(job['file'], job['output'], delimiter=job['delimiter'],
                quotechar=job['quotechar'], encoding=job['encoding'], fn=job['fn'])
     elif cmd == 'map':
-        itable = job['inputs'][0]
         if job['parallel']:
             max_workers = int(job['parallel']) if job['parallel'] >= 2 else _CONFIG['max_workers']
             max_workers = min(max_workers, psutil.cpu_count())
-            tdir = os.path.join(_CONFIG['ws'], _TEMP)
-            if not os.path.exists(tdir):
-                os.makedirs(tdir)
-            dbfiles = [os.path.join(_TEMP, _random_string(10)) for _ in range(max_workers - 1)]
-
-            tcon = 'con' + _random_string(9)
-            ttable = "tbl" + _random_string(9)
-            # Rather expensive
-            tsize = c._size(itable)
-            breaks = [int(i * tsize / max_workers) for i in range(1, max_workers)]
-            bys = _listify(job['by']) if job['by'] else None
-            exe = Pool(len(dbfiles) + 1)
-
-            def _split_table(source_table, breaks, dbfiles):
-                for (a, b), dbfile in zip(zip(breaks, breaks[1:] + [tsize]), dbfiles):
-                    c._cursor.execute(f"attach database '{dbfile}' as {tcon}")
-                    c._cursor.execute(f"""
-                    create table {tcon}.{source_table} as select * from {source_table}
-                    where _ROWID_ > {a} and _ROWID_ <= {b}
-                    """)
-                    c._conn.commit()
-                    c._cursor.execute(f"detach database {tcon}")
-
-            def _proc(dbfile):
-                source = ttable if bys else itable
-                if isinstance(dbfile, int):
-                    query = f"select * from {source} where _ROWID_ <= {dbfile}"
-                    dbfile = _DBNAME
-                else:
-                    query = f"select * from {source}"
-
-                with _connect(dbfile) as c1:
-                    seq = _applyfn(job['fn'], c1.fetch(query, where=job['where'], by=bys),
-                                   job['arg'])
-                    try:
-                        c1.insert(seq, job['output'])
-                    except NoRowToInsert:
-                        pass
-
-            def _collect_tables(dbfiles):
-                succeeded_dbfiles = []
-                for dbfile in dbfiles:
-                    with _connect(dbfile) as c1:
-                        if job['output'] in c1.get_tables():
-                            succeeded_dbfiles.append(dbfile)
-
-                if succeeded_dbfiles == [] and (job['output'] not in c.get_tables()):
-                    raise NoRowToInsert
-
-                if job['output'] not in c.get_tables():
-                    with _connect(succeeded_dbfiles[0]) as c1:
-                        ocols = c1._cols(f"select * from {job['output']}")
-                    c._cursor.execute(_create_statement(job['output'], ocols))
-                # collect tables from dbfiles
-                for dbfile in succeeded_dbfiles:
-                    c._cursor.execute(f"attach database '{dbfile}' as {tcon}")
-                    c._cursor.execute(f"""
-                    insert into {job['output']} select * from {tcon}.{job['output']}
-                    """)
-                    c._conn.commit()
-                    c._cursor.execute(f"detach database {tcon}")
-
-            def _delete_dbfiles(dbfiles):
-                with _delayed_keyboard_interrupts():
-                    for dbfile in dbfiles:
-                        if os.path.exists(dbfile):
-                            os.remove(dbfile)
-                    c.drop(ttable)
-
-        # condition for parallel work by group
-        if job['parallel'] and job['by'] and job['by'].strip() != '*' and \
-            tsize >= max_workers and max_workers > 1:
-            try:
-
-                c._cursor.execute(f"""
-                create table {ttable} as select * from {itable} order by {','.join(bys)}
-                """)
-
-                def nth_gcols(n):
-                    c._cursor.execute(f"select * from {ttable} where _ROWID_ == {n} limit 1")
-                    r = c._cursor.fetchone()
-                    return [r[c] for c in bys]
-
-                def where1(br):
-                    return ' and '.join(f"{c} = {repr(v)}" for c, v in zip(bys, nth_gcols(br)))
-
-                def build_wheres(breaks):
-                    return ' or '.join(where1(br) for br in breaks)
-
-                # don't use r['_rowid_'] here
-                newbreaks = [list(r.values())[0] for r in c._cursor.execute(f"""
-                select _ROWID_ from {ttable}
-                where {build_wheres(breaks)} group by {','.join(bys)} having MAX(_ROWID_)
-                """)] + [tsize]
-
-                _split_table(ttable, newbreaks, dbfiles)
-                exe.map(_proc, [newbreaks[0]] + dbfiles)
-                _collect_tables(dbfiles)
-            finally:
-                _delete_dbfiles(dbfiles)
-
-        # non group parallel work
-        elif job['parallel'] and (not job['by']) and tsize >= max_workers and max_workers > 1:
-            try:
-                _split_table(itable, breaks, dbfiles)
-                exe.map(_proc, [breaks[0]] + dbfiles)
-                _collect_tables(dbfiles)
-            finally:
-                _delete_dbfiles(dbfiles)
-
+            tsize = c._size(job['inputs'][0])
+        if job['parallel'] and job['by'] and job['by'].strip() != '*' and\
+            max_workers > 1 and tsize >= max_workers:
+            if platform.system() == 'Darwin':
+                _exec_parallel_map_darwin(c, job, max_workers, tsize)
+            else:
+                _exec_parallel_map_non_darwin(c, job, max_workers, tsize)
         else:
             seq = c.fetch(f"select * from {job['inputs'][0]}", job['where'], _listify(job['by']))
             seq1 = _applyfn(job['fn'], seq, job['arg'])
@@ -370,6 +269,217 @@ def _execute(c, job):
                 for r in c.fetch(f"select * from {inp}"):
                     yield r
         c.insert(gen(), job['output'])
+
+
+# sqlite3 in osx can't handle multiple connections properly.
+def _exec_parallel_map_darwin(c, job, max_workers, tsize):
+    itable = job['inputs'][0]
+    tdir = os.path.join(_CONFIG['ws'], _TEMP)
+    if not os.path.exists(tdir):
+        os.makedirs(tdir)
+    dbfiles = [os.path.join(_TEMP, _random_string(10)) for _ in range(max_workers)]
+
+    tcon = 'con' + _random_string(9)
+    ttable = "tbl" + _random_string(9)
+    # Rather expensive
+    breaks = [int(i * tsize / max_workers) for i in range(1, max_workers)]
+    bys = _listify(job['by']) if job['by'] else None
+    exe = Pool(len(dbfiles))
+
+    def _proc(dbfile, cut):
+        query = f"select * from {ttable} where _ROWID_ > {cut[0]} and _ROWID_ <= {cut[1]}"
+        with _connect(dbfile) as c1:
+            seq = _applyfn(job['fn'], c1.fetch(query, where=job['where'], by=bys), job['arg'])
+            try:
+                c1.insert(seq, job['output'])
+            except NoRowToInsert:
+                pass
+
+    def _collect_tables(dbfiles):
+        succeeded_dbfiles = []
+        for dbfile in dbfiles:
+            with _connect(dbfile) as c1:
+                if job['output'] in c1.get_tables():
+                    succeeded_dbfiles.append(dbfile)
+
+        if succeeded_dbfiles == []:
+            raise NoRowToInsert
+
+        with _connect(succeeded_dbfiles[0]) as c1:
+            ocols = c1._cols(f"select * from {job['output']}")
+        c._cursor.execute(_create_statement(job['output'], ocols))
+
+        # collect tables from dbfiles
+        for dbfile in succeeded_dbfiles:
+            c._cursor.execute(f"attach database '{dbfile}' as {tcon}")
+            c._cursor.execute(f"insert into {job['output']} select * from {tcon}.{job['output']}")
+            c._conn.commit()
+            c._cursor.execute(f"detach database {tcon}")
+
+    def _delete_dbfiles(dbfiles):
+        with _delayed_keyboard_interrupts():
+            for dbfile in dbfiles:
+                if os.path.exists(dbfile):
+                    os.remove(dbfile)
+
+    # condition for parallel work by group
+    if bys:
+        try:
+            c._cursor.execute(f"attach database '{dbfiles[0]}' as {tcon}")
+            c._cursor.execute(f"""
+            create table {tcon}.{ttable} as select * from {itable} order by {','.join(bys)}
+            """)
+            c._conn.commit()
+            c._cursor.execute(f"detach database {tcon}")
+
+            with _connect(dbfiles[0]) as c1:
+                def nth_gcols(n):
+                    c1._cursor.execute(f"select * from {ttable} where _ROWID_ == {n} limit 1")
+                    r = c1._cursor.fetchone()
+                    return [r[c] for c in bys]
+
+                def where1(br):
+                    return ' and '.join(f"{c} = {repr(v)}" for c, v in zip(bys, nth_gcols(br)))
+
+                def build_wheres(breaks):
+                    return ' or '.join(where1(br) for br in breaks)
+    
+                newbreaks = [list(r.values())[0] for r in c1._cursor.execute(f"""
+                select _ROWID_ from {ttable}
+                where {build_wheres(breaks)} group by {','.join(bys)} having MAX(_ROWID_)
+                """)] + [tsize]
+            for dbfile in dbfiles[1:]:
+                copyfile(dbfiles[0], dbfile)
+
+            exe.map(_proc, dbfiles, zip([0] + newbreaks, newbreaks))
+            _collect_tables(dbfiles)
+        finally:
+            _delete_dbfiles(dbfiles)
+
+    # non group parallel work
+    else:
+        try:
+            c._cursor.execute(f"attach database '{dbfiles[0]}' as {tcon}")
+            c._cursor.execute(f"create table {tcon}.{ttable} as select * from {itable}")
+            c._conn.commit()
+            c._cursor.execute(f"detach database {tcon}")
+            for dbfile in dbfiles[1:]:
+                copyfile(dbfiles[0], dbfile)
+
+            exe.map(_proc, dbfiles, zip([0] + breaks, breaks + [tsize]))
+            _collect_tables(dbfiles)
+        finally:
+            _delete_dbfiles(dbfiles)
+
+
+def _exec_parallel_map_non_darwin(c, job, max_workers, tsize):
+    itable = job['inputs'][0]
+    tdir = os.path.join(_CONFIG['ws'], _TEMP)
+    if not os.path.exists(tdir):
+        os.makedirs(tdir)
+    dbfiles = [os.path.join(_TEMP, _random_string(10)) for _ in range(max_workers - 1)]
+
+    tcon = 'con' + _random_string(9)
+    ttable = "tbl" + _random_string(9)
+    # Rather expensive
+    breaks = [int(i * tsize / max_workers) for i in range(1, max_workers)]
+    bys = _listify(job['by']) if job['by'] else None
+    exe = Pool(len(dbfiles) + 1)
+
+    def _split_table(source_table, breaks, dbfiles):
+        for (a, b), dbfile in zip(zip(breaks, breaks[1:] + [tsize]), dbfiles):
+            c._cursor.execute(f"attach database '{dbfile}' as {tcon}")
+            c._cursor.execute(f"""
+            create table {tcon}.{source_table} as select * from {source_table}
+            where _ROWID_ > {a} and _ROWID_ <= {b}
+            """)
+            c._conn.commit()
+            c._cursor.execute(f"detach database {tcon}")
+
+    def _proc(dbfile):
+        source = ttable if bys else itable
+        if isinstance(dbfile, int):
+            query = f"select * from {source} where _ROWID_ <= {dbfile}"
+            dbfile = _DBNAME
+        else:
+            query = f"select * from {source}"
+
+        with _connect(dbfile) as c1:
+            seq = _applyfn(job['fn'], c1.fetch(query, where=job['where'], by=bys),
+                            job['arg'])
+            try:
+                c1.insert(seq, job['output'])
+            except NoRowToInsert:
+                pass
+
+    def _collect_tables(dbfiles):
+        succeeded_dbfiles = []
+        for dbfile in dbfiles:
+            with _connect(dbfile) as c1:
+                if job['output'] in c1.get_tables():
+                    succeeded_dbfiles.append(dbfile)
+
+        if succeeded_dbfiles == [] and (job['output'] not in c.get_tables()):
+            raise NoRowToInsert
+
+        if job['output'] not in c.get_tables():
+            with _connect(succeeded_dbfiles[0]) as c1:
+                ocols = c1._cols(f"select * from {job['output']}")
+            c._cursor.execute(_create_statement(job['output'], ocols))
+        # collect tables from dbfiles
+        for dbfile in succeeded_dbfiles:
+            c._cursor.execute(f"attach database '{dbfile}' as {tcon}")
+            c._cursor.execute(f"""
+            insert into {job['output']} select * from {tcon}.{job['output']}
+            """)
+            c._conn.commit()
+            c._cursor.execute(f"detach database {tcon}")
+
+    def _delete_dbfiles(dbfiles):
+        with _delayed_keyboard_interrupts():
+            for dbfile in dbfiles:
+                if os.path.exists(dbfile):
+                    os.remove(dbfile)
+            c.drop(ttable)
+
+    # condition for parallel work by group
+    if bys:
+        try:
+            c._cursor.execute(f"""
+            create table {ttable} as select * from {itable} order by {','.join(bys)}
+            """)
+
+            def nth_gcols(n):
+                c._cursor.execute(f"select * from {ttable} where _ROWID_ == {n} limit 1")
+                r = c._cursor.fetchone()
+                return [r[c] for c in bys]
+
+            def where1(br):
+                return ' and '.join(f"{c} = {repr(v)}" for c, v in zip(bys, nth_gcols(br)))
+
+            def build_wheres(breaks):
+                return ' or '.join(where1(br) for br in breaks)
+
+            # don't use r['_rowid_'] here
+            newbreaks = [list(r.values())[0] for r in c._cursor.execute(f"""
+            select _ROWID_ from {ttable}
+            where {build_wheres(breaks)} group by {','.join(bys)} having MAX(_ROWID_)
+            """)] + [tsize]
+
+            _split_table(ttable, newbreaks, dbfiles)
+            exe.map(_proc, [newbreaks[0]] + dbfiles)
+            _collect_tables(dbfiles)
+        finally:
+            _delete_dbfiles(dbfiles)
+
+    # non group parallel work
+    else:
+        try:
+            _split_table(itable, breaks, dbfiles)
+            exe.map(_proc, [breaks[0]] + dbfiles)
+            _collect_tables(dbfiles)
+        finally:
+            _delete_dbfiles(dbfiles)
 
 
 def load(file=None, fn=None, delimiter=None, quotechar='"', encoding='utf-8'):
