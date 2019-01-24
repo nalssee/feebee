@@ -135,22 +135,26 @@ class TestMap(unittest.TestCase):
             self.assertEqual(sum(1 for _ in fet(c, 'orders1')), 44)
 
     def test_group_by(self):
-        def bigmarket(rs, a):
-            if len(rs) > a:
-                yield from rs
+        def bigmarket(a):
+            def fn(rs):
+                if len(rs) > a:
+                    yield from rs
+            return fn
 
-        def bigmarket1(rs, a):
-            if len(rs) > a:
-                return rs
-            else:
-                return []
+        def bigmarket1(a):
+            def fn(rs):
+                if len(rs) > a:
+                    return rs
+                else:
+                    return []
+            return fn
 
         fb.register(
             # you can either pass a function that returns 
             # a dictionary (row) or  a list of dictionaries 
             # or pass a generator that yields dictionaries
-            customers1 = fb.map(bigmarket, 'customers', by='Country', arg=5),
-            customers2 = fb.map(bigmarket1, 'customers', by='Country', arg=5)
+            customers1 = fb.map(bigmarket(5), 'customers', by='Country'),
+            customers2 = fb.map(bigmarket1(5), 'customers', by='Country')
         )
         fb.run()
 
@@ -435,8 +439,10 @@ class TestParallel(unittest.TestCase):
                                 where=lambda r: isinstance(r['PostalCode'], int)),
             customers2s = fb.map(first_name, 'customers', 
                                 where=lambda r: isinstance(r['PostalCode'], int), parallel=3),
+
        )      
         fb.run()
+
         with fb1._connect('test.db') as c:
             self.assertEqual(list(fet(c, 'customers1')), list(fet(c, 'customers1s')))
             self.assertEqual(list(fet(c, 'customers2')), list(fet(c, 'customers2s')))
