@@ -113,12 +113,10 @@ class _Connection:
         # DO NOT re_CONFIGure pragmas. Defaults are defaults for a reason.
         # You could make it faster but with a cost. It could corrupt the disk image of the database.
 
-    def fetch(self, query, where=None, by=None):
+    def fetch(self, query, by=None):
         if by and isinstance(by, list) and by != ['*'] and all(isinstance(c, str) for c in by):
             query += " order by " + ','.join(by)
         rows = self._conn.cursor().execute(query)
-        if where:
-            rows = (r for r in rows if where(r))
         if by:
             if isinstance(by, list):
                 rows1 = (list(rs) for _, rs in groupby(rows, _build_keyfn(by)))
@@ -265,7 +263,7 @@ def _execute(c, job):
             max_workers > 1 and tsize >= max_workers:
             _exec_parallel_map(c, job, max_workers, tsize)
         else:
-            seq = c.fetch(f"select * from {job['inputs'][0]}", job['where'], _listify(job['by']))
+            seq = c.fetch(f"select * from {job['inputs'][0]}", _listify(job['by']))
             seq1 = _applyfn(job['fn'], _tqdm(seq, c._size(job['inputs'][0]), job['by']))
             c.insert(seq1, job['output'])
 
@@ -307,7 +305,7 @@ def _exec_parallel_map(c, job, max_workers, tsize):
         query = f"select * from {ttable} where _ROWID_ > {cut[0]} and _ROWID_ <= {cut[1]}"
         with _connect(dbfile) as c1:
             n = cut[1] - cut[0] 
-            seq = _applyfn(job['fn'], _tqdm(c1.fetch(query, where=job['where'], by=bys), n, by=bys))
+            seq = _applyfn(job['fn'], _tqdm(c1.fetch(query, by=bys), n, by=bys))
             try:
                 c1.insert(seq, job['output'])
             except NoRowToInsert:
@@ -400,12 +398,11 @@ def load(file=None, fn=None, delimiter=None, quotechar='"', encoding='utf-8'):
             'inputs': []}
 
 
-def map(fn=None, data=None, where=None, by=None, parallel=False):
+def map(fn=None, data=None, by=None, parallel=False):
     return {
         'cmd': 'map',
         'fn': fn,
         'inputs': [data],
-        'where': where,
         'by': by,
         'parallel': parallel
     }

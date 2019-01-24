@@ -122,11 +122,14 @@ class TestMap(unittest.TestCase):
         fb.run()
 
     def test_append_yyyy_yyyymm_columns(self):
+        def add_yyyy_yyyymm(r):
+            if r['orderdate'] > '1996-xx-xx':
+                r['yyyy'] = r['orderdate'][:4]
+                r['yyyymm'] = r['orderdate'][:7]
+                yield r
+
         fb.register(
-            orders1 = fb.map(add(yyyy=lambda r: r['orderdate'][:4], 
-                                 yyyymm=lambda r: r['orderdate'][:7]),
-                             'orders',
-                             where=lambda r: r['orderdate'] > '1996-xx-xx'),
+            orders1 = fb.map(add_yyyy_yyyymm, 'orders'),
         )
         fb.run()
         with fb1._connect('test.db') as c:
@@ -186,8 +189,12 @@ class TestMap(unittest.TestCase):
         self.assertEqual([x['output'] for x in undone], ['orders1'])
 
     def test_insert_empty_rows(self):
+        def filter10(r):
+            if r['shipperid'] == 10:
+                yield r 
+
         fb.register(
-            orders1 = fb.map(lambda r: r, 'orders', where=lambda r: r['shipperid'] == 10)
+            orders1 = fb.map(filter10, 'orders')
         )
         fb.run()
         with self.assertRaises(sqlite3.OperationalError):
@@ -404,16 +411,20 @@ class TestParallel(unittest.TestCase):
             rs[0]['n'] = len(rs)
             yield rs[0]
 
+        def count1(rs):
+            rs1 = [r for r in rs if r['yyyy'] == 1997]
+            if rs1:
+                rs1[0]['n'] = len(rs1)
+                yield rs1[0]
+
         fb.register(
             orders = fb.load('orders.csv', fn=add_yyyy),
             # you can enforce single-core-proc by passing parallel "False"
             orders1 = fb.map(count, 'orders', by='yyyymm, shipperid'),
             orders1s = fb.map(count, 'orders', by='yyyymm, shipperid', parallel=True),
             # part of workers do not have work to do, sort of a corner case
-            orders2 = fb.map(count, 'orders', where=lambda r: r['yyyy'] == 1997, 
-                             by='yyyymm, shipperid'),
-            orders2s = fb.map(count, 'orders', where=lambda r: r['yyyy'] == 1997, 
-                             by='yyyymm, shipperid', parallel=True),
+            orders2 = fb.map(count1, 'orders', by='yyyymm, shipperid'),
+            orders2s = fb.map(count1, 'orders', by='yyyymm, shipperid', parallel=True),
             # one column should work as well
             orders3 = fb.map(count, 'orders', by='yyyymm'),
             orders3s = fb.map(count, 'orders', by='yyyymm', parallel=True),
@@ -430,15 +441,18 @@ class TestParallel(unittest.TestCase):
             r['first_name'] = r['CustomerName'].split()[0]
             yield r 
         
+        def first_name1(r):
+            if isinstance(r['PostalCode'], int):
+                r['first_name'] = r['CustomerName'].split()[0]
+                yield r 
+        
         fb.register(
             customers = fb.load('customers.csv'),
             customers1 = fb.map(first_name, 'customers'),
             customers1s = fb.map(first_name, 'customers', parallel=4),
 
-            customers2 = fb.map(first_name, 'customers', 
-                                where=lambda r: isinstance(r['PostalCode'], int)),
-            customers2s = fb.map(first_name, 'customers', 
-                                where=lambda r: isinstance(r['PostalCode'], int), parallel=3),
+            customers2 = fb.map(first_name1, 'customers'),
+            customers2s = fb.map(first_name1, 'customers', parallel=3),
 
        )      
         fb.run()
