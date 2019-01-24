@@ -18,6 +18,7 @@ from sas7bdat import SAS7BDAT
 from graphviz import Digraph
 from more_itertools import spy, chunked
 from pathos.multiprocessing import ProcessingPool as Pool
+from progressbar import progressbar
 if platform.system() == "Darwin":
     from shutil import copyfile
 
@@ -162,7 +163,7 @@ class _Connection:
 
         if fn:
             seq = _flatten(fn(rs) for rs in seq)
-        self.insert(seq, name)
+        self.insert(progressbar(seq), name)
 
     def get_tables(self):
         query = self._cursor.execute("select * from sqlite_master where type='table'")
@@ -258,7 +259,7 @@ def _execute(c, job):
         else:
             seq = c.fetch(f"select * from {job['inputs'][0]}", job['where'], _listify(job['by']))
             seq1 = _applyfn(job['fn'], seq, job['arg'])
-            c.insert(seq1, job['output'])
+            c.insert(progressbar(seq1), job['output'])
 
     elif cmd == 'join':
         c.join(job['args'], job['output'])
@@ -291,7 +292,7 @@ def _exec_parallel_map_darwin(c, job, max_workers, tsize):
         with _connect(dbfile) as c1:
             seq = _applyfn(job['fn'], c1.fetch(query, where=job['where'], by=bys), job['arg'])
             try:
-                c1.insert(seq, job['output'])
+                c1.insert(progressbar(seq), job['output'])
             except NoRowToInsert:
                 pass
 
@@ -408,7 +409,7 @@ def _exec_parallel_map_non_darwin(c, job, max_workers, tsize):
             seq = _applyfn(job['fn'], c1.fetch(query, where=job['where'], by=bys),
                             job['arg'])
             try:
-                c1.insert(seq, job['output'])
+                c1.insert(progressbar(seq), job['output'])
             except NoRowToInsert:
                 pass
 
