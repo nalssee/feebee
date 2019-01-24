@@ -139,7 +139,7 @@ class _Connection:
         self._cursor.executemany(istmt, rs)
 
     def load(self, filename, name, delimiter=None, quotechar='"',
-             encoding='utf-8', fn=None):
+             encoding='utf-8', newline="\n", fn=None):
         total = None        
         if isinstance(filename, str):
             _, ext = os.path.splitext(filename)
@@ -153,8 +153,8 @@ class _Connection:
                 # default delimiter is ","
                 delimiter = delimiter or ("\t" if ext.lower() == ".tsv" else ",")
                 seq = _read_csv(filename, delimiter=delimiter, quotechar=quotechar,
-                                encoding=encoding)
-                total = _line_count(filename) 
+                                encoding=encoding, newline=newline)
+                total = _line_count(filename, encoding, newline) 
         else:
             # iterator, since you can pass an iterator
             # functions of 'load' should be limited
@@ -255,16 +255,18 @@ def _execute(c, job):
         c.load(job['file'], job['output'], delimiter=job['delimiter'],
                quotechar=job['quotechar'], encoding=job['encoding'], fn=job['fn'])
     elif cmd == 'map':
+        tsize = c._size(job['inputs'][0])
         if job['parallel']:
             max_workers = int(job['parallel']) if job['parallel'] >= 2 else _CONFIG['max_workers']
             max_workers = min(max_workers, psutil.cpu_count())
-            tsize = c._size(job['inputs'][0])
         if job['parallel'] and (job['by'].strip() != '*' if job['by'] else True) and\
-            max_workers > 1 and tsize >= max_workers:
+             max_workers > 1 and tsize >= max_workers:
+            logger.info(f"processing {job['cmd']}: {job['output']} (multiprocessing: {max_workers})")
             _exec_parallel_map(c, job, max_workers, tsize)
         else:
+            logger.info(f"processing {job['cmd']}: {job['output']}")
             seq = c.fetch(f"select * from {job['inputs'][0]}", _listify(job['by']))
-            seq1 = _applyfn(job['fn'], _tqdm(seq, c._size(job['inputs'][0]), job['by']))
+            seq1 = _applyfn(job['fn'], _tqdm(seq, tsize, job['by']))
             c.insert(seq1, job['output'])
 
     elif cmd == 'join':
@@ -278,8 +280,8 @@ def _execute(c, job):
         c.insert(gen(), job['output'])
 
 
-def _line_count(fname):
-    with open(fname) as f:
+def _line_count(fname, encoding, newline):
+    with open(fname, encoding=encoding, newline=newline) as f:
         for i, _ in enumerate(f):
             pass
     # header implied, hence not i + 1
@@ -545,7 +547,8 @@ def _run():
             for i, job in enumerate(jobs_to_do):
                 if is_doable(job):
                     try:
-                        logger.info(f"processing {job['cmd']}: {job['output']}")
+                        if job['cmd'] != 'map':
+                            logger.info(f"processing {job['cmd']}: {job['output']}")
                         _execute(c, job)
                     except Exception as e:
                         logger.error(f"Failed: {job['output']}")
@@ -619,8 +622,8 @@ def _insert_statement(name, d):
     return "insert into %s values (%s)" % (name, keycols)
 
 
-def _read_csv(filename, delimiter=',', quotechar='"', encoding='utf-8'):
-    with open(os.path.join(_CONFIG['ws'], filename), encoding=encoding) as f:
+def _read_csv(filename, delimiter=',', quotechar='"', encoding='utf-8', newline="\n"):
+    with open(os.path.join(_CONFIG['ws'], filename), encoding=encoding, newline=newline) as f:
         header = [c.strip() for c in f.readline().split(delimiter)]
         yield from csv.DictReader(f, fieldnames=header,
                                   delimiter=delimiter, quotechar=quotechar)
