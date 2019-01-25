@@ -228,7 +228,7 @@ def _flatten(seq):
     for x in seq:
         if isinstance(x, dict):
             yield x
-        else:
+        elif x is not None:
             yield from x
 
 

@@ -201,6 +201,20 @@ class TestMap(unittest.TestCase):
             with fb1._connect('test.db') as c:
                 list(fet(c, 'orders1'))
 
+
+    def test_return_none(self):
+        def foo(r):
+            if r['shipperid'] == 1:
+                return r
+
+        fb.register(
+            orders1 = fb.map(foo, 'orders'),
+        )
+        fb.run()
+        with fb1._connect('test.db') as c:
+            self.assertEqual(len(list(fet(c, 'orders1'))), 54)
+
+
     def tearDown(self):
         remdb()
 
