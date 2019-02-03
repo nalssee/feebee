@@ -1,8 +1,6 @@
 import os
 import sys
 import unittest
-from datetime import datetime
-from dateutil.relativedelta import relativedelta
 import sqlite3
 
 TESTPATH = os.path.dirname(os.path.realpath(__file__))
@@ -22,7 +20,7 @@ import feebee.feebee as fb1
 # 5,Berglunds snabbköp,Christina Berglund,Berguvsvägen 8,Luleå,S-958 22,Sweden
 
 
-# orders.csv 
+# orders.csv
 # orderid,customerid,employeeid,orderdate,shipperid
 # 10248,90,5,1996-07-04,3
 # 10249,81,6,1996-07-05,1
@@ -38,7 +36,7 @@ def initialize():
     remdb()
     fb1._JOBS = {}
     fb.run()
-        
+
 class TestLoading(unittest.TestCase):
     def setUp(self):
         initialize()
@@ -107,7 +105,7 @@ class TestLoading(unittest.TestCase):
         fb.run()
         with fb1._connect('test.db') as c:
             self.assertEqual(c._cols("select * from foo"), ['a', 'b'])
- 
+
     def tearDown(self):
         if os.path.isfile('test.db'):
             os.remove('test.db')
@@ -133,7 +131,7 @@ class TestMap(unittest.TestCase):
         )
         fb.run()
         with fb1._connect('test.db') as c:
-            self.assertEqual(len(c._cols('select * from orders')) + 2, 
+            self.assertEqual(len(c._cols('select * from orders')) + 2,
                              len(c._cols('select * from orders1')))
             self.assertEqual(sum(1 for _ in fet(c, 'orders1')), 44)
 
@@ -153,8 +151,8 @@ class TestMap(unittest.TestCase):
             return fn
 
         fb.register(
-            # you can either pass a function that returns 
-            # a dictionary (row) or  a list of dictionaries 
+            # you can either pass a function that returns
+            # a dictionary (row) or  a list of dictionaries
             # or pass a generator that yields dictionaries
             customers1 = fb.map(bigmarket(5), 'customers', by='Country'),
             customers2 = fb.map(bigmarket1(5), 'customers', by='Country')
@@ -180,7 +178,7 @@ class TestMap(unittest.TestCase):
         fb.run()
         with fb1._connect('test.db') as c:
             self.assertEqual(fet(c, 'orders'), fet(c, 'orders1'))
-        
+
     def test_group_invalid(self):
         fb.register(
             orders1 = fb.map(lambda rs: {'a': 10}, 'orders', by=10.0),
@@ -191,7 +189,7 @@ class TestMap(unittest.TestCase):
     def test_insert_empty_rows(self):
         def filter10(r):
             if r['shipperid'] == 10:
-                yield r 
+                yield r
 
         fb.register(
             orders1 = fb.map(filter10, 'orders')
@@ -225,7 +223,7 @@ class TestMapErrornousInsertion(unittest.TestCase):
         fb.register(
             orders=fb.load(file='orders.csv'),
         )
-        fb.run() 
+        fb.run()
 
     def test_insert_differently_named_rows(self):
         def errornous1(rs):
@@ -307,7 +305,7 @@ class TestGraph(unittest.TestCase):
         def add_yyyy(r):
             r['yyyy'] = r['orderdate'][0:4]
             return r
-        
+
         def count(rs):
             rs[0]['n'] = len(rs)
             yield rs[0]
@@ -320,10 +318,10 @@ class TestGraph(unittest.TestCase):
                 ['orders', '*', 'customerid'],
                 ['customers', 'Country', 'customerid'],
             ),
-            # yearly number of orders by country 
+            # yearly number of orders by country
             orders2 = fb.map(count, 'orders1', by='yyyy, Country'),
         )
-        saved_jobs = fb1._JOBS 
+        saved_jobs = fb1._JOBS
         fb.run()
         with open('test.gv') as f:
             graph = f.read()
@@ -331,12 +329,12 @@ class TestGraph(unittest.TestCase):
                 self.assertTrue(j in graph)
 
         with fb1._connect('test.db') as c:
-            c.drop('customers') 
+            c.drop('customers')
 
         fb1._JOBS = saved_jobs
-        # rerun 
+        # rerun
         jobs_to_do, jobs_undone = fb.run()
-        self.assertEqual(set(j['output'] for j in jobs_to_do), 
+        self.assertEqual(set(j['output'] for j in jobs_to_do),
                          set(['customers', 'orders1', 'orders2']))
         self.assertEqual(jobs_undone, [])
 
@@ -383,7 +381,7 @@ class TestIntegratedProcess(unittest.TestCase):
             # count the number of orders by month
             orders2 = fb.map(fn=sumup, data='orders1', by='yyyymm'),
             orders3 = fb.map(fn=cnt, data='orders2', by='*'),
-            # want to compute past 6 months 
+            # want to compute past 6 months
             orders4 = fb.join(
                 ['orders3', '*', 'cnt'],
                 ['orders3', 'norders as norders1', 'cnt + 1'],
@@ -404,7 +402,7 @@ class TestIntegratedProcess(unittest.TestCase):
                 if isinstance(r['avg'], float) or isinstance(r['avg'], int):
                     xs.append(xs)
             self.assertEqual(len(xs), 9)
-            
+
     def tearDown(self):
         remdb()
 
@@ -453,13 +451,13 @@ class TestParallel(unittest.TestCase):
     def test_simple_parallel_work_non_group(self):
         def first_name(r):
             r['first_name'] = r['CustomerName'].split()[0]
-            yield r 
-        
+            yield r
+
         def first_name1(r):
             if isinstance(r['PostalCode'], int):
                 r['first_name'] = r['CustomerName'].split()[0]
-                yield r 
-        
+                yield r
+
         fb.register(
             customers = fb.load('customers.csv'),
             customers1 = fb.map(first_name, 'customers'),
@@ -468,13 +466,13 @@ class TestParallel(unittest.TestCase):
             customers2 = fb.map(first_name1, 'customers'),
             customers2s = fb.map(first_name1, 'customers', parallel=3),
 
-       )      
+       )
         fb.run()
 
         with fb1._connect('test.db') as c:
             self.assertEqual(list(fet(c, 'customers1')), list(fet(c, 'customers1s')))
             self.assertEqual(list(fet(c, 'customers2')), list(fet(c, 'customers2s')))
- 
+
 
     def tearDown(self):
         remdb()
@@ -494,7 +492,7 @@ class TestLogMsg(unittest.TestCase):
         remdb()
 
 
-# utils  
+# utils
 def nlines_file(name):
     with open(name) as f:
         return len(f.readlines())
