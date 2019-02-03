@@ -18,7 +18,7 @@ from sas7bdat import SAS7BDAT
 from graphviz import Digraph
 from more_itertools import spy, chunked
 from pathos.multiprocessing import ProcessingPool as Pool
-from tqdm import tqdm 
+from tqdm import tqdm
 from shutil import copyfile
 
 
@@ -37,9 +37,9 @@ _GRAPH_NAME = _filename + '.gv'
 _JOBS = {}
 # folder name (in workspace) for temporary databases for parallel work
 _TEMP = "_temp"
-_RESERVED_KEYWORDS = set() 
+_RESERVED_KEYWORDS = set()
 
-with open(os.path.join(os.path.dirname(os.path.realpath(__file__)), 'reserved_keywords.txt'), 
+with open(os.path.join(os.path.dirname(os.path.realpath(__file__)), 'reserved_keywords.txt'),
           newline='\n') as f:
     for line in f.readlines():
         _RESERVED_KEYWORDS.add(line.strip())
@@ -115,7 +115,7 @@ class _Connection:
             _CONFIG['ws'] = os.getcwd()
         dbfile = os.path.join(_CONFIG['ws'], dbfile)
         locale.setlocale(locale.LC_ALL, _CONFIG['locale'])
-        logger.propagate = _CONFIG['msg'] 
+        logger.propagate = _CONFIG['msg']
 
         self._conn = sqlite3.connect(dbfile)
         self._conn.row_factory = _dict_factory
@@ -147,14 +147,14 @@ class _Connection:
         for x in [name] + cols:
             if _is_reserved(x):
                 raise ReservedKeyword(x)
-            
+
         self._cursor.execute(_create_statement(name, cols))
         istmt = _insert_statement(name, r0[0])
         self._cursor.executemany(istmt, rs)
 
     def load(self, filename, name, delimiter=None, quotechar='"',
              encoding='utf-8', newline="\n", fn=None):
-        total = None        
+        total = None
         if isinstance(filename, str):
             _, ext = os.path.splitext(filename)
             if ext.lower() == '.xlsx' or ext.lower() == ".xls":
@@ -168,7 +168,7 @@ class _Connection:
                 delimiter = delimiter or ("\t" if ext.lower() == ".tsv" else ",")
                 seq = _read_csv(filename, delimiter=delimiter, quotechar=quotechar,
                                 encoding=encoding, newline=newline)
-                total = _line_count(filename, encoding, newline) 
+                total = _line_count(filename, encoding, newline)
         else:
             # iterator, since you can pass an iterator
             # functions of 'load' should be limited
@@ -190,7 +190,7 @@ class _Connection:
             self._cursor.execute(f'drop table if exists {table}')
 
     def join(self, tinfos, name):
-        # check if a colname is a reserved keyword 
+        # check if a colname is a reserved keyword
         newcols = []
         for _, _cols, _ in tinfos:
             _cols = [c.upper() for c in _listify(_cols)]
@@ -267,14 +267,14 @@ def _tqdm(seq, total, by):
     if by:
         with tqdm(seq, total=total) as pbar:
             for rs in seq:
-                yield rs 
+                yield rs
                 pbar.update(len(rs))
     else:
         with tqdm(seq, total=total) as pbar:
             for r in seq:
-                yield r 
+                yield r
                 pbar.update(1)
-        
+
 
 def _execute(c, job):
     cmd = job['cmd']
@@ -334,7 +334,7 @@ def _exec_parallel_map(c, job, max_workers, tsize):
     def _proc(dbfile, cut):
         query = f"select * from {ttable} where _ROWID_ > {cut[0]} and _ROWID_ <= {cut[1]}"
         with _connect(dbfile) as c1:
-            n = cut[1] - cut[0] 
+            n = cut[1] - cut[0]
             seq = _applyfn(job['fn'], _tqdm(c1.fetch(query, by=bys), n, by=bys))
             try:
                 c1.insert(seq, job['output'])
@@ -389,7 +389,7 @@ def _exec_parallel_map(c, job, max_workers, tsize):
 
                 def build_wheres(breaks):
                     return ' or '.join(where1(br) for br in breaks)
-    
+
                 newbreaks = [list(r.values())[0] for r in c1._cursor.execute(f"""
                 select _ROWID_ from {ttable}
                 where {build_wheres(breaks)} group by {','.join(bys)} having MAX(_ROWID_)

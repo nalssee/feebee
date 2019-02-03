@@ -1,7 +1,7 @@
 from setuptools import setup
 
 setup(name='feebee',
-      version='0.5.1',
+      version='0.5.2',
       description='datawork tools',
       url='https://github.com/nalssee/feebee.git',
       author='nalssee',
@@ -19,6 +19,6 @@ setup(name='feebee',
           'more-itertools>=5.0.0',
           'coloredlogs>=10.0',
           'tqdm>=4.29.1',
-          'pandas',      
+          'pandas',
           ],
       zip_safe=False)

@@ -1,15 +1,11 @@
-import os
 import locale
 import csv
 from openpyxl import load_workbook
-import statistics as st
-from scipy.stats import ttest_1samp
 from datetime import timedelta
 import numpy as np
-from itertools import zip_longest, accumulate, chain, groupby, product
+from itertools import zip_longest, accumulate, groupby
 import pandas as pd
 import ciso8601
-import io
 import statsmodels.api as sm
 
 
@@ -65,6 +61,29 @@ def lag(cols, datecol, ns, add1fn=None, max_missings=10_000):
     return fn
 
 
+def where(pred, fn=None):
+    """ Filter with pred before you apply fn to a list of rows.
+        if fn is not given, simply filter with pred
+    """
+    if fn:
+        def func(rs):
+            return fn([r for r in rs if pred(r)])
+        return func
+    else:
+        return lambda r: (r if pred(r) else None)
+
+
+def affix(**kwargs):
+    def fn(r):
+        for k, v in kwargs.items():
+            try:
+                r[k] = v(r)
+            except:
+                r[k] = ''
+        return r
+    return fn
+
+
 def read_date(date):
     return ciso8601.parse_datetime(date)
 
@@ -90,7 +109,7 @@ def add_date(date, n):
         raise ValueError("Unsupported date format", date)
 
 
-def ols(rs, y, xs, add_constant=False):
+def ols(rs, y, xs, add_constant=True):
     xs = listify(xs)
     df = pd.DataFrame(rs)
     if add_constant:
@@ -99,7 +118,7 @@ def ols(rs, y, xs, add_constant=False):
         return sm.OLS(df[[y]], df[list(xs)]).fit()
 
 
-def logit(rs, y, xs, add_constant=False):
+def logit(rs, y, xs, add_constant=True):
     xs = listify(xs)
     df = pd.DataFrame(rs)
     if add_constant:
@@ -107,7 +126,6 @@ def logit(rs, y, xs, add_constant=False):
         return sm.Logit(df[[y]], sm.add_constant(df[list(xs)])).fit(disp=0)
     else:
         return sm.Logit(df[[y]], df[list(xs)]).fit(disp=0)
-
 
 
 def chunk(rs, n, column=None):
@@ -260,30 +278,6 @@ def grouper(iterable, n, fillvalue=None):
     return zip_longest(fillvalue=fillvalue, *args)
 
 
-def diff(high, low):
-    return [a - b for a, b in zip(high, low)]
-
-
-def ttest(seq, n=3):
-    tval, pval = ttest_1samp(seq, 0.0)
-    return f'{round(st.mean(seq), n)}{stars(pval)}', round(tval, n)
-
-
-def mean(cols, ncol=None):
-    def fn(rs):
-        r0 = rs[0]
-        for c in cols:
-            if isinstance(c, str):
-                r0[c] = avg(rs, c)
-            else:
-                # c can be a tuple(for example) for weighted average.
-                r0[c[0]] = avg(rs, *c)
-        if ncol:
-            r0[ncol] = len(rs)
-        return r0
-    return fn
-
-
 def avg(rs, col, wcol=None, ndigits=None):
     if wcol:
         xs = [r for r in rs if isnum(r[col], r[wcol])]
@@ -295,49 +289,37 @@ def avg(rs, col, wcol=None, ndigits=None):
 
 
 def _num1(rs, c, p):
-    for r in rs:
-        r['pn_' + c] = ''
-
     rs = [r for r in rs if isnum(r[c])]
     rs.sort(key=lambda r: r[c])
-    if isinstance(p, int):
-        rss = chunk(rs, p)
-        n = p
-    # p: (n, port_fn)
-    else:
-        if len(p) != 2:
-            raise ValueError("Invalid numbering direction: ", c, p)
-        n, pfn = p
-        rss = pfn(rs)
-    if not (all(rss) and len(rss) == n):
-        raise ValueError("Not enough rows for column: ", c)
+    rss = chunk(rs, p) if isinstance(p, int) else p(rs)
     for i, rs1 in enumerate(rss, 1):
         for r in rs1:
             r['pn_' + c] = i
     return rss
 
 
-# numbering dependent
-def numbering_dep(**kwargs):
-    def fn(rs, cps):
-        if cps:
-            c, p = cps[0]
-            for rs1 in _num1(rs, c, p):
-                fn(rs1, cps[1:])
-        return rs
-    cps = [(c, p) for c, p in kwargs.items()]
-    return lambda rs: fn(rs, cps)
-
-
-def numbering(**kwargs):
-    def fn(rs, cps):
+def numbering(d, dep=False):
+    def fni(rs, cps):
         if cps:
             c, p = cps[0]
             _num1(rs, c, p)
-            fn(rs, cps[1:])
+            fni(rs, cps[1:])
         return rs
-    cps = [(c, p) for c, p in kwargs.items()]
-    return lambda rs: fn(rs, cps)
+
+    def fnd(rs, cps):
+        if cps:
+            c, p = cps[0]
+            for rs1 in _num1(rs, c, p):
+                fnd(rs1, cps[1:])
+        return rs
+
+    cps = [(c, p) for c, p in d.items()]
+    def fn(rs):
+        for c, _ in cps:
+            for r in rs:
+                r['pn_' + c] = ''
+        return fnd(rs, cps) if dep else fni(rs, cps)
+    return fn
 
 
 def _empty(r):
@@ -362,4 +344,3 @@ def _build_keyfn(key):
         return lambda r: r[col]
     else:
         return lambda r: [r[colname] for colname in colnames]
-
