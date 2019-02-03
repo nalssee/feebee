@@ -275,7 +275,6 @@ class TestMapErrornousInsertion(unittest.TestCase):
         remdb()
 
 
-
 class TestUnion(unittest.TestCase):
     def setUp(self):
         initialize()

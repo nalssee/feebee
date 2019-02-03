@@ -8,7 +8,7 @@ PYPATH = os.path.join(TESTPATH, '..', '..')
 sys.path.append(PYPATH)
 
 import feebee as fb
-from feebee.util import chunk, lag, datemath
+from feebee.util import chunk, lag, add_date, read_date, isnum, readxl, grouper, listify
 
 # only for testing
 import feebee.feebee as fb1
@@ -30,7 +30,24 @@ def initialize():
 
 
 def ndate(n):
-    return lambda date: datemath(date, n)
+    return lambda date: add_date(date, n)
+
+
+def fnguide(fname, colnames, sheet=None, encoding='euc-kr'):
+    colnames = listify(colnames)
+    ncols = len(colnames)
+    rss = readxl(fname, sheets=sheet, encoding=encoding)
+    for _ in range(8):
+        next(rss)
+    # firmcodes
+    ids = [x[0] for x in grouper(next(rss)[1:], ncols)]
+    for _ in range(5):
+        next(rss)
+     
+    for rs in rss:
+        date = rs[0]
+        for id, vals in zip(ids, grouper(rs[1:], ncols)):
+            yield {'id': id, 'date': date, **{c: v for c, v in zip(colnames, vals)}}
 
 
 class TestEmAll(unittest.TestCase):
@@ -91,32 +108,76 @@ class TestEmAll(unittest.TestCase):
             zs = [r['orderid_1n'] for r in result]
             self.assertEqual(xs[1:], zs[:-1])
             self.assertEqual(zs[-1:], [''])
+            rs = rs[:7]
+            with self.assertRaises(ValueError):
+                result = lag('orderid, customerid', 'orderdate', [1, 2, -1], ndate(1))(rs)
 
-            # rs = rs[:7]
-            # result = lag('orderid, customerid', 'orderdate', [1, 2, -1], ndate(1))(rs)
+            del rs[2] # raise exception for duplicates, so.
+            del rs[-2] # Just for the heck of it
+            result = lag('orderid, customerid', 'orderdate', [1, 2, -1], ndate(1))(rs)
 
-            # del rs[2]
-            # del rs[-1]
+            self.assertEqual([r['orderdate'] for r in result],
+                ['1996-07-04', '1996-07-05', '1996-07-06', '1996-07-07', 
+                 '1996-07-08', '1996-07-09', '1996-07-10', '1996-07-11'])
+            self.assertEqual(
+                [r['orderid'] for r in result],
+                [10248, 10249, '', '', 10251, 10252, '', 10254]
+            )
+            self.assertEqual(
+                [r['orderid_2'] for r in result],
+                ['', '', 10248, 10249, '', '', 10251, 10252]
+            )
+            self.assertEqual(
+                [r['orderid_1n'] for r in result],
+                [10249, '', '', 10251, 10252, '', 10254, '']
+            )
 
-    def test_datemath(self):
-        self.assertEqual(datemath('1993-10', 3), '1994-01')
-        self.assertEqual(datemath('1993-10', -10), '1992-12')
-        self.assertEqual(datemath('2012-02-26', 4), '2012-03-01')
-        self.assertEqual(datemath('2013-02-26', 4), '2013-03-02')
-        self.assertEqual(datemath('2013-02-26', -4), '2013-02-22')
+    def test_add_date(self):
+        self.assertEqual(add_date('1993-10', 3), '1994-01')
+        self.assertEqual(add_date('1993-10', -10), '1992-12')
+        self.assertEqual(add_date('2012-02-26', 4), '2012-03-01')
+        self.assertEqual(add_date('2013-02-26', 4), '2013-03-02')
+        self.assertEqual(add_date('2013-02-26', -4), '2013-02-22')
 
+    def test_isnum(self):
+        self.assertTrue(isnum(3))
+        self.assertTrue(isnum(-29.39))
+        self.assertTrue(isnum('3'))
+        self.assertTrue(isnum('-29.39'))
+        self.assertFalse(isnum('1,000'))
+        self.assertFalse(isnum(3, '1,000'))
+        self.assertTrue(isnum(3, '-3.12'))
 
-    # >>> del rs[2] # raise exception for duplicates, so.
-    # >>> del rs[-2] # Just for the heck of it
-    # >>> [r['orderdate'] for r in result]
-    # ['1996-07-04', '1996-07-05', '1996-07-06', '1996-07-07', '1996-07-08', '1996-07-09', '1996-07-10', '1996-07-11']
-    # >>> [r['orderid'] for r in result]
-    # ['10248', '10249', '', '', '10251', '10252', '', '10254']
-    # >>> [r['orderid_2'] for r in result]
-    # ['', '', '10248', '10249', '', '', '10251', '10252']
-    # >>> [r['orderid_1n'] for r in result]
-    # ['10249', '', '', '10251', '10252', '', '10254', '']
-    # """
+    def test_readxl(self):
+        fb.register(
+            foreign = fb.load(fnguide('foreign.xlsx', 'buy, sell')),
+        )
+        # 'foreign' is reserved
+        with self.assertRaises(fb1.ReservedKeyword):
+            fb.run()
+        fb1._JOBS = {}
+        fb.register(
+            tvol = fb.load(fnguide('foreign.xlsx', 'buy, sell')),
+            size = fb.load(fnguide('foreign.xlsx', sheet='size', colnames='size, forsize')),
+            mdata = fb.load(fnguide('mdata.csv', colnames='a, b, c, d')),
+        )
+        fb.run()
+
+        with fb1._connect('test_util.db') as c:
+            rs = fet(c, 'tvol')
+            self.assertEqual(len(rs), 285888)
+            rs = fet(c, 'size')
+            self.assertEqual(len(rs), 142944)
+            rs = fet(c, 'mdata')
+            self.assertEqual(len(rs), 213240)
+
+    def test_listify(self):
+        self.assertEqual(listify('a, b, c'), ['a', 'b', 'c'])
+        self.assertEqual(listify(3), [3])
+        self.assertEqual(listify([1, 2]), [1, 2])
+
+    
+
 
     def tearDown(self):
         remdb()

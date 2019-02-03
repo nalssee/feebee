@@ -13,53 +13,8 @@ import io
 import statsmodels.api as sm
 
 
-ORDERS = """\
-orderid,customerid,employeeid,orderdate,shipperid
-10248,90,5,1996-07-04,3
-10252,76,4,1996-07-09,2
-10249,81,6,1996-07-05,1
-10253,34,3,1996-07-10,2
-10250,34,4,1996-07-08,2
-10251,84,3,1996-07-08,1
-10254,14,5,1996-07-11,2\
-"""
-
-
 def lag(cols, datecol, ns, add1fn=None, max_missings=10_000):
-    """ create columns for lags and leads
-
-    >>> rs = _str2dicts(ORDERS)
-    >>> result = lag('orderid, customerid', 'orderdate', [1, 2, -1])(rs)
-    >>> len(rs) == len(result)
-    True
-    >>> list(result[0].keys())
-    ['orderid', 'customerid', 'employeeid', 'orderdate', 'shipperid', 'orderid_1', 'customerid_1', 'orderid_2', 'customerid_2', 'orderid_1n', 'customerid_1n']
-
-    >>> xs = [r['orderid'] for r in result]
-    >>> xs
-    ['10248', '10249', '10250', '10251', '10252', '10253', '10254']
-    >>> ys = [r['orderid_2'] for r in result]
-    >>> ys[2:] == xs[:5]
-    True
-    >>> ys[:2]
-    ['', '']
-    >>> zs = [r['orderid_1n'] for r in result]
-    >>> xs[1:] == zs[:6]
-    True
-    >>> zs[6:]
-    ['']
-    >>> # Pass add1fn
-    >>> del rs[2] # raise exception for duplicates, so.
-    >>> del rs[-2] # Just for the heck of it
-    >>> result = lag('orderid, customerid', 'orderdate', [1, 2, -1], ndate(1))(rs)
-    >>> [r['orderdate'] for r in result]
-    ['1996-07-04', '1996-07-05', '1996-07-06', '1996-07-07', '1996-07-08', '1996-07-09', '1996-07-10', '1996-07-11']
-    >>> [r['orderid'] for r in result]
-    ['10248', '10249', '', '', '10251', '10252', '', '10254']
-    >>> [r['orderid_2'] for r in result]
-    ['', '', '10248', '10249', '', '', '10251', '10252']
-    >>> [r['orderid_1n'] for r in result]
-    ['10249', '', '', '10251', '10252', '', '10254', '']
+    """ create columns for lags and leads, ex) col_1, col_2n
     """
     cols = listify(cols)
     ns = listify(ns)
@@ -110,22 +65,12 @@ def lag(cols, datecol, ns, add1fn=None, max_missings=10_000):
     return fn
 
 
-def rdate(date):
+def read_date(date):
     return ciso8601.parse_datetime(date)
 
 
-def datemath(date, n):
+def add_date(date, n):
     """n means days for "%Y-%m-%d", months for "%Y-%m". Supports only 2 fmt.
-    >>> ndate(3)("1993-10")
-    '1994-01'
-    >>> ndate(-10)("1993-10")
-    '1992-12'
-    >>> ndate(4)("2012-02-26")
-    '2012-03-01'
-    >>> ndate(4)("2013-02-26")
-    '2013-03-02'
-    >>> ndate(-4)("2013-02-26")
-    '2013-02-22'
     """
     # "1903-09"
     if len(date) == 7:
@@ -274,20 +219,6 @@ def empty(r):
 
 def isnum(*xs):
     """ Tests if x is numeric
-    >>> isnum(3)
-    True
-    >>> isnum(-29.39)
-    True
-    >>> isnum('3')
-    True
-    >>> isnum('-29.39')
-    True
-    >>> isnum('1,000')
-    False
-    >>> isnum(3, '1,000')
-    False
-    >>> isnum(3, '-3.12')
-    True
     """
     try:
         for x in xs:
@@ -325,11 +256,6 @@ def _build_keyfn(key):
         return lambda r: r[col]
     else:
         return lambda r: [r[colname] for colname in colnames]
-
-def _str2dicts(text):
-    f = io.StringIO(text)
-    header = next(csv.reader(f))
-    return [r for r in csv.DictReader(f, fieldnames=header)]
 
 
 def listify(x):
@@ -369,62 +295,10 @@ def overlap(rs, size, step=1, key=None):
         return result
 
 
-def simptrans(fname, col1, col2):
-    "simple transpose, keep the first column"
-    rss = readxl(fname)
-    header = [x.strip() for x in next(rss)]
-    col0 = header[0]
-    for line in rss:
-        val0 = line[0]
-        for c, val in zip(header[1:], line[1:]):
-            yield {
-                col0: val0,
-                col1: c,
-                col2: val
-            }
-
-
-def fnguide(fname, colnames, sheet=None, encoding='euc-kr'):
-    rss = readxl(fname, sheet_name=sheet, encoding=encoding)
-    for _ in range(8):
-        next(rss)
-    # firmcodes
-    ids = [x[0] for x in grouper(next(rss)[1:], len(colnames))]
-    for _ in range(5):
-        next(rss)
-    header = ['id', 'date'] + colnames
-    print(','.join(header))
-    for rs in rss:
-        date = rs[0]
-        for id, vals in zip(ids, grouper(rs[1:], len(colnames))):
-            print(','.join([id, str(date)[:10]] + [str(x) for x in vals]))
-
-
-
-# There are some easier versions like risk free rates
-# def fnguide1(fname, colnames, sheet=None, encoding='euc-kr'):
-#     rss = readxl(fname, sheet_name=sheet, encoding=encoding)
-#     for _ in range(14):
-#         next(rss)
-#     for rs in rss:
-#         r = {'date': str(rs[0])[:10]}
-#         for col, val in zip(colnames, rs[1:]):
-#             r[col] = val
-#         yield r
-
-def fnguide1(fname, colnames, sheet=None, encoding='euc-kr'):
-    rss = readxl(fname, sheet_name=sheet, encoding=encoding)
-    for _ in range(14):
-        next(rss)
-    n = len(colnames)
-    print(','.join(['date'] + colnames))
-    for rs in rss:
-        print(','.join([str(rs[0])[:10]] + [str(x) for x in rs[1:n + 1]]))
-
-
-def readxl(fname, sheet_name=None, encoding='utf-8'):
-    _locale = 'English_United States.1252' if os.name == 'nt' else 'en_US.UTF-8'
-    locale.setlocale(locale.LC_ALL, _locale)
+def readxl(fname, sheets=None, encoding='utf-8', delimiter=None, quotechar='"', newline='\n'):
+    """ Reads excel like files and yields a list of values
+    """
+    # locale is set in fb.run()
     def conv(x):
         try:
             return locale.atoi(x)
@@ -433,25 +307,23 @@ def readxl(fname, sheet_name=None, encoding='utf-8'):
                 return locale.atof(x)
             except Exception:
                 return x
-
-    if fname.endswith('.csv'):
-        with open(fname, encoding=encoding) as fin:
-            for rs in csv.reader(x.replace('\0', '') for x in fin):
+    # csv, tsv, ssv ...
+    if not (fname.endswith('.xls') or fname.endswith('.xlsx')):
+        # default delimiter is ","
+        delimiter = delimiter or ("\t" if fname.lower().endswith('.tsv') else ",")
+        with open(fname, encoding=encoding, newline=newline) as fin:
+            for rs in csv.reader((x.replace('\0', '') for x in fin),\
+                delimiter=delimiter, quotechar=quotechar):
                 yield [conv(x) for x in rs]
     else:
         workbook = load_workbook(fname, read_only=True)
-        if not sheet_name:
-            sheet_name = workbook.sheetnames[0]
-        for row in workbook[sheet_name].iter_rows():
-            yield [c.value for c in row]
-
-
-def readcsv(fname):
-    with open(fname) as f:
-        rss = csv.reader(x.replace('\0', '') for x in f)
-        cols = next(rss)
-        for rs in rss:
-            yield dict(zip(cols, rs))
+        sheets = listify(sheets) if sheets else [workbook.sheetnames[0]]
+        # all sheets
+        if sheets == ['*']:
+            sheets = workbook.sheetnames
+        for sheet in sheets:
+            for row in workbook[sheet].iter_rows():
+                yield [c.value for c in row]
 
 
 def grouper(iterable, n, fillvalue=None):
@@ -539,8 +411,6 @@ def table2d(rs, m, n, pncol1, pncol2, retcol):
     yield r2
 
 
-
-
 def mean(cols, ncol=None):
     def fn(rs):
         r0 = rs[0]
@@ -554,7 +424,6 @@ def mean(cols, ncol=None):
             r0[ncol] = len(rs)
         return r0
     return fn
-
 
 
 def portn(n):
@@ -629,18 +498,22 @@ def numbering2dep(col1, port1, col2, port2):
         yield from rs
     return fn
 
-
-def append_dummies(r, d):
-    for k, v in d.items():
-        val = r[k]
-        for v1 in v:
-            r[k + '_' + str(v1)] = 1 if val == v1 else 0
-    return r
+def numbering(**kwargs):
+    def fn(rs):
+        pass
+    return fn
 
 
-if __name__ == "__main__":
-    import doctest
-    doctest.testmod()
-    # fnguide('data_for_ff3.xlsx', ['mkt'], sheet='mkt', encoding='utf-8')
-    # fnguide('data_for_ff3.xlsx', ['icode'], sheet='icode')
-    fnguide('manal.xlsx', ['anal'])
+def numbering_dep(**kwargs):
+    cps = [(c, p) for c, p in kwargs.items()]
+    def fn(rs, cps):
+        if cps:
+            c, p = cps[0]
+            if isinstance(p, int):
+                
+
+            for rs1 in _num1(rs, cps[0]):
+                fn(rs1, cps[1:])
+    return fn
+
+

@@ -37,6 +37,12 @@ _GRAPH_NAME = _filename + '.gv'
 _JOBS = {}
 # folder name (in workspace) for temporary databases for parallel work
 _TEMP = "_temp"
+_RESERVED_KEYWORDS = set() 
+
+with open(os.path.join(os.path.dirname(os.path.realpath(__file__)), 'reserved_keywords.txt'), 
+          newline='\n') as f:
+    for line in f.readlines():
+        _RESERVED_KEYWORDS.add(line.strip())
 
 coloredlogs.DEFAULT_FIELD_STYLES['levelname']['color'] = 'cyan'
 coloredlogs.install(
@@ -61,6 +67,10 @@ class InvalidGroup(FeebeeError):
 
 
 class UnknownConfig(FeebeeError):
+    pass
+
+
+class ReservedKeyword(FeebeeError):
     pass
 
 
@@ -134,6 +144,10 @@ class _Connection:
             raise NoRowToInsert(name)
 
         cols = list(r0[0])
+        for x in [name] + cols:
+            if _is_reserved(x):
+                raise ReservedKeyword(x)
+            
         self._cursor.execute(_create_statement(name, cols))
         istmt = _insert_statement(name, r0[0])
         self._cursor.executemany(istmt, rs)
@@ -171,9 +185,22 @@ class _Connection:
     def drop(self, tables):
         tables = _listify(tables)
         for table in tables:
+            if _is_reserved(table):
+                raise ReservedKeyword(table)
             self._cursor.execute(f'drop table if exists {table}')
 
     def join(self, tinfos, name):
+        # check if a colname is a reserved keyword 
+        newcols = []
+        for _, _cols, _ in tinfos:
+            _cols = [c.upper() for c in _listify(_cols)]
+            for c in _cols:
+                if 'AS' in c:
+                    newcols.append(c.split('AS')[-1])
+        for x in [name] + newcols:
+            if _is_reserved(x):
+                raise ReservedKeyword(x)
+
         tname0, _, mcols0 = tinfos[0]
         join_clauses = []
         for i, (tname1, _, mcols1) in enumerate(tinfos[1:], 1):
@@ -269,6 +296,7 @@ def _execute(c, job):
             seq1 = _applyfn(job['fn'], _tqdm(seq, tsize, job['by']))
             c.insert(seq1, job['output'])
 
+    # The only place where 'insert' is not used
     elif cmd == 'join':
         c.join(job['args'], job['output'])
 
@@ -659,3 +687,7 @@ def _read_stata(filename):
     chunk = 10_000
     for xs in pd.read_stata(filename, chunksize=chunk):
         yield from _read_df(xs)
+
+
+def _is_reserved(x):
+    return x.upper() in _RESERVED_KEYWORDS
