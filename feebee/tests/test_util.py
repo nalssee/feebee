@@ -2,6 +2,7 @@ import os
 import sys
 import unittest
 import sqlite3
+from random import shuffle
 
 TESTPATH = os.path.dirname(os.path.realpath(__file__))
 PYPATH = os.path.join(TESTPATH, '..', '..')
@@ -239,13 +240,19 @@ class TestEmAll(unittest.TestCase):
 
     def test_numbering(self):
         rs = [{'a': i // 2 if i %  2 == 0 else '', 'b': i // 3 if i % 3 == 0 else ''} for i in range(1, 101)]
+        shuffle(rs)
         numbering({'a': 2, 'b': 3})(rs)
-        self.assertEqual([r['pn_b'] for r in rs if isnum(r['a'], r['b'])],
+        rs = [r for r in rs if isnum(r['a'], r['b'])]
+        rs.sort(key=lambda r: r['a'])
+        self.assertEqual([r['pn_b'] for r in rs],
             [1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3]
         )
 
         rs = [{'a': i // 2 if i %  2 == 0 else '', 'b': i // 3 if i % 3 == 0 else ''} for i in range(1, 101)]
+        shuffle(rs)
         numbering({'a': 2, 'b': 3}, True)(rs)
+        rs = [r for r in rs if isnum(r['a'], r['b'])]
+        rs.sort(key=lambda r: r['a'])
         self.assertEqual([r['pn_b'] for r in rs if isnum(r['a'], r['b'])],
             [1, 1, 2, 2, 2, 3, 3, 3, 1, 1, 2, 2, 2, 3, 3, 3]
         )
