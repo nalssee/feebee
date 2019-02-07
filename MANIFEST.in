@@ -1,1 +1,2 @@
 include reserved_keywords.txt
+recursive-include data *
