@@ -3,7 +3,7 @@ import csv
 from openpyxl import load_workbook
 from datetime import timedelta
 import numpy as np
-from itertools import zip_longest, accumulate, groupby
+from itertools import zip_longest, accumulate, groupby, chain
 import pandas as pd
 import ciso8601
 import statsmodels.api as sm
@@ -276,6 +276,14 @@ def grouper(iterable, n, fillvalue=None):
     # grouper('ABCDEFG', 3, 'x') --> ABC DEF Gxx
     args = [iter(iterable)] * n
     return zip_longest(fillvalue=fillvalue, *args)
+
+
+def overlap(rs, size, step=1, key=None):
+    if key:
+        xs = group(rs, key)
+        return [list(chain(*xs[i:i + size])) for i in range(0, len(xs), step)]
+    else:
+        return [rs[i:i + size] for i in range(0, len(rs), step)]
 
 
 def avg(rs, col, wcol=None, ndigits=None):

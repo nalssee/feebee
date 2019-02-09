@@ -10,7 +10,7 @@ sys.path.append(PYPATH)
 
 import feebee as fb
 from feebee.util import chunk, lag, add_date, read_date, isnum, readxl, grouper, listify, truncate,\
-    avg, winsorize, ols, group, numbering, affix, where
+    avg, winsorize, ols, group, numbering, affix, where, overlap
 
 # only for testing
 import feebee.feebee as fb1
@@ -281,6 +281,31 @@ class TestEmAll(unittest.TestCase):
         self.assertEqual(
             [fn(r) for r in rs][:7], [None] * 7
         )
+
+    def test_overlap(self):
+        rs = [{'a': i} for i in range(10)]
+        rss = overlap(rs, 5, 3)
+        self.assertEqual([[r['a'] for r in rs1] for rs1 in rss],
+            [[0, 1, 2, 3, 4], [3, 4, 5, 6, 7], [6, 7, 8, 9], [9]])
+
+        with fb1._connect('test_util.db') as c:
+            rs = []
+            for r in fet(c, 'orders'):
+                r['yyyymm'] = r['orderdate'][:7]
+                rs.append(r)
+
+            shuffle(rs)
+            rss = overlap(rs, 3, key='yyyymm')
+            self.assertEqual(
+                [rs1[0]['yyyymm'] for rs1 in rss],
+                [add_date('1996-07', i) for i in range(8)])
+            self.assertEqual(
+                [rs1[-1]['yyyymm'] for rs1 in rss],
+                ['1996-09', '1996-10', '1996-11', '1996-12', '1997-01', '1997-02', '1997-02', '1997-02'])
+            self.assertEqual(
+                [len(rs1) for rs1 in rss],
+                [70, 74, 74, 82, 89, 75, 44, 11]
+            )
 
 
     def tearDown(self):
