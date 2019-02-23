@@ -6,7 +6,6 @@ import numpy as np
 from itertools import zip_longest, accumulate, groupby, chain
 import pandas as pd
 import ciso8601
-import statsmodels.api as sm
 
 
 def lag(cols, datecol, ns, add1fn=None, max_missings=10_000):
@@ -109,23 +108,26 @@ def add_date(date, n):
         raise ValueError("Unsupported date format", date)
 
 
-def ols(rs, y, xs, add_constant=True):
-    xs = listify(xs)
-    df = pd.DataFrame(rs)
-    if add_constant:
-        return sm.OLS(df[[y]], sm.add_constant(df[list(xs)])).fit()
-    else:
-        return sm.OLS(df[[y]], df[list(xs)]).fit()
+def getX(rs, cols, constant=False):
+    def getvals_fn(cols, const):
+        if const:
+            return lambda r: [1] + [r[c] for c in cols]
+        else:
+            return lambda r: [r[c] for c in cols]
+
+    getvals = getvals_fn(listify(cols), constant)
+    return [getvals(r) for r in rs]
 
 
-def logit(rs, y, xs, add_constant=True):
-    xs = listify(xs)
-    df = pd.DataFrame(rs)
-    if add_constant:
-        # disp=0 suppress some infos regarding optimization
-        return sm.Logit(df[[y]], sm.add_constant(df[list(xs)])).fit(disp=0)
-    else:
-        return sm.Logit(df[[y]], df[list(xs)]).fit(disp=0)
+def gety(rs, col):
+    return [r[col] for r in rs]
+
+
+def set_default(rs, cols, val=''):
+    cols = listify(cols)
+    for r in rs:
+        for c in cols:
+            r[c] = val
 
 
 def chunk(rs, n, column=None):
@@ -211,6 +213,11 @@ def isnum(*xs):
         return True
     except (ValueError, TypeError):
         return False
+
+
+def allnum(rs, cols):
+    cols = listify(cols)
+    return [r for r in rs if all(isnum(r[c]) for c in cols)]
 
 
 def stars(pval):

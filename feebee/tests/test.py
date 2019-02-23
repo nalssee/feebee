@@ -491,6 +491,92 @@ class TestLogMsg(unittest.TestCase):
         remdb()
 
 
+class TestUnderscore(unittest.TestCase):
+    def test_if_tables_starting_with_underscore(self):
+        remdb()
+        with fb1._connect('test.db') as c:
+            c.insert([{'a': 10}], '_orders')
+
+        fb.register(
+            _orders = fb.load('orders.csv'),
+        )
+
+        fb.run()
+
+        with fb1._connect('test.db') as c:
+            # _orders must be updated
+            self.assertGreater(len(fet(c, '_orders')), 1)
+
+
+class TestHelperTables(unittest.TestCase):
+    def test_helper_tables(self):
+        def stupid(r, table):
+            r['foo'] = len(table)
+            return r
+        initialize()
+        fb.register(
+            orders = fb.load('orders.csv'),
+            orderdetails = fb.load('orderdetails.csv'),
+
+            orders1 = fb.map(stupid, 'orders', tables='orderdetails')
+        )
+        fb.run()
+        with fb1._connect('test.db') as c:
+            self.assertEqual(fet(c, 'orders1')[0]['foo'], len(fet(c, 'orderdetails')))
+
+    def test_helper_tables_parallel(self):
+        def stupid(r, table1, table2):
+            r['foo'] = len(table1)
+            r['bar'] = len(table2)
+            return r
+
+        initialize()
+        fb.register(
+            orders = fb.load('orders.csv'),
+            products = fb.load('products.csv'),
+            orderdetails = fb.load('orderdetails.csv'),
+            orders1 = fb.map(stupid, 'orders', tables='orderdetails, products', parallel=True)
+        )
+        fb.run()
+        with fb1._connect('test.db') as c:
+            self.assertEqual(fet(c, 'orders1')[0]['foo'], len(fet(c, 'orderdetails')))
+            self.assertEqual(fet(c, 'orders1')[0]['bar'], len(fet(c, 'products')))
+
+
+class TestRun(unittest.TestCase):
+    def test_refresh(self):
+        fb.register(
+            orders = fb.load('orders.csv'),
+            products = fb.load('products.csv'),
+        )
+        fb.run()
+
+        fb1._JOBS = {}
+        fb.register(
+            orders = fb.load('products.csv')
+        )
+        fb.run(refresh='orders')
+        with fb1._connect('test.db') as c:
+            self.assertEqual(len(fet(c, 'orders')), len(fet(c, 'products')))
+
+    def test_export(self):
+        if os.path.exists('orders_sample.csv'):
+            os.remove('orders_sample.csv')
+
+        fb.register(
+            orders_sample = fb.load('orders.csv'),
+        )
+        fb.run(export='orders_sample')
+        fb.register(
+            foo = fb.load('orders_sample.csv'),
+        )
+        fb.run()
+        with fb1._connect('test.db') as c:
+            self.assertEqual(fet(c, 'orders_sample'), fet(c, 'foo'))
+        if os.path.exists('orders_sample.csv'):
+            os.remove('orders_sample.csv')
+
+
 # utils
 def nlines_file(name):
     with open(name) as f:

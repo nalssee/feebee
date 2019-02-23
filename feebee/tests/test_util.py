@@ -3,6 +3,7 @@ import sys
 import unittest
 import sqlite3
 from random import shuffle
+import statsmodels.api as sm
 
 TESTPATH = os.path.dirname(os.path.realpath(__file__))
 PYPATH = os.path.join(TESTPATH, '..', '..')
@@ -10,7 +11,7 @@ sys.path.append(PYPATH)
 
 import feebee as fb
 from feebee.util import chunk, lag, add_date, read_date, isnum, readxl, grouper, listify, truncate,\
-    avg, winsorize, ols, group, numbering, affix, where, overlap
+    avg, winsorize, group, numbering, affix, where, overlap, set_default, allnum, getX, gety
 
 # only for testing
 import feebee.feebee as fb1
@@ -218,11 +219,14 @@ class TestEmAll(unittest.TestCase):
 
         with fb1._connect('test_util.db') as c:
             rs = fet(c, 'products')
-            res = ols(rs, 'Price', 'SupplierID, CategoryID')
+            # with Constant
+            y, X = gety(rs, 'Price'), getX(rs, 'SupplierID, CategoryID', True)
+            res = sm.OLS(y, X).fit()
             self.assertEqual(len(res.params), 3)
             self.assertEqual(len(res.resid), len(rs))
             # no constant
-            res = ols(rs, 'Price', 'SupplierID, CategoryID', False)
+            y, X = gety(rs, 'Price'), getX(rs, 'SupplierID, CategoryID')
+            res = sm.OLS(y, X).fit()
             self.assertEqual(len(res.params), 2)
             self.assertEqual(len(res.resid), len(rs))
 
@@ -306,6 +310,26 @@ class TestEmAll(unittest.TestCase):
                 [len(rs1) for rs1 in rss],
                 [70, 74, 74, 82, 89, 75, 44, 11]
             )
+
+    def test_set_default(self):
+        rs = [
+            {'a': 10},
+            {'a': 11},
+            {'a': -3}
+        ]
+
+        set_default(rs, 'b, c')
+        self.assertEqual([3, 3, 3], [len(r)for r in rs])
+
+    def test_allnum(self):
+        rs = [
+            {'a': -7.9, 'b': 'a'},
+            {'a': '', 'b': -3},
+            {'a': -3, 'b': 1.2}
+        ]
+        self.assertEqual(len(allnum(rs, 'a, b')), 1)
+        self.assertEqual(len(allnum(rs, 'a')), 2)
+        self.assertEqual(len(allnum(rs, 'b')), 2)
 
 
     def tearDown(self):

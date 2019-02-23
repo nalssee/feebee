@@ -29,6 +29,8 @@ _CONFIG = {
     'max_workers': psutil.cpu_count(logical=False),
     'locale': _locale,
     'msg': True,
+    'refresh': None,
+    'export': None
 }
 
 _filename, _ = os.path.splitext(os.path.basename(sys.argv[0]))
@@ -72,6 +74,10 @@ class FeebeeError(Exception):
 
 
 class NoRowToInsert(FeebeeError):
+    pass
+
+
+class NoRowToWrite(FeebeeError):
     pass
 
 
@@ -249,6 +255,19 @@ class _Connection:
         for ind_tname in ind_tnames:
             self._cursor.execute(f"drop index {ind_tname}")
 
+    def export(self, tables):
+        for table in _listify(tables):
+            with open(os.path.join(_CONFIG['ws'], table + '.csv'), 'w', encoding='utf-8', newline='') as f:
+                rs = self.fetch(f'select * from {table}')
+                r0, rs = spy(rs)
+                if r0 == []:
+                    raise NoRowToWrite
+                fieldnames = list(r0[0])
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer.writeheader()
+                for r in rs:
+                    writer.writerow(r)
+
     def _cols(self, query):
         return [c[0] for c in self._cursor.execute(query).description]
 
@@ -272,8 +291,11 @@ def _flatten(seq):
             yield from x
 
 
-def _applyfn(fn, seq):
-    yield from _flatten(fn(rs) for rs in seq)
+def _applyfn(fn, seq, tables):
+    if tables:
+        yield from _flatten(fn(rs, *tables) for rs in seq)
+    else:
+        yield from _flatten(fn(rs) for rs in seq)
 
 
 def _tqdm(seq, total, by):
@@ -306,7 +328,8 @@ def _execute(c, job):
         else:
             logger.info(f"processing {job['cmd']}: {job['output']}")
             seq = c.fetch(f"select * from {job['inputs'][0]}", _listify(job['by']))
-            seq1 = _applyfn(job['fn'], _tqdm(seq, tsize, job['by']))
+            helper_tables = [list(c.fetch(f'select * from {tbl}')) for tbl in job['inputs'][1:]]
+            seq1 = _applyfn(job['fn'], _tqdm(seq, tsize, job['by']), helper_tables)
             c.insert(seq1, job['output'])
 
     # The only place where 'insert' is not used
@@ -344,11 +367,12 @@ def _exec_parallel_map(c, job, max_workers, tsize):
     bys = _listify(job['by']) if job['by'] else None
     exe = Pool(len(dbfiles))
 
+    helper_tables = [list(c.fetch(f'select * from {tbl}')) for tbl in job['inputs'][1:]]
     def _proc(dbfile, cut):
         query = f"select * from {ttable} where _ROWID_ > {cut[0]} and _ROWID_ <= {cut[1]}"
         with _connect(dbfile) as c1:
             n = cut[1] - cut[0]
-            seq = _applyfn(job['fn'], _tqdm(c1.fetch(query, by=bys), n, by=bys))
+            seq = _applyfn(job['fn'], _tqdm(c1.fetch(query, by=bys), n, by=bys), helper_tables)
             try:
                 c1.insert(seq, job['output'])
             except NoRowToInsert:
@@ -441,11 +465,11 @@ def load(file=None, fn=None, delimiter=None, quotechar='"', encoding='utf-8'):
             'inputs': []}
 
 
-def map(fn=None, data=None, by=None, parallel=False):
+def map(fn=None, data=None, by=None, parallel=False, tables=[]):
     return {
         'cmd': 'map',
         'fn': fn,
-        'inputs': [data],
+        'inputs': [data] + _listify(tables),
         'by': by,
         'parallel': parallel
     }
@@ -572,6 +596,11 @@ def _run():
         except Exception:
             pass
 
+        # delete tables that start with underscore
+        c.drop([job['output'] for job in jobs if job['output'].startswith('_')])
+        if _CONFIG['refresh']:
+            c.drop(_listify(_CONFIG['refresh']))
+
         starting_points = [job['output'] for job in jobs if job['cmd'] == 'load']
         paths = []
         for sp in starting_points:
@@ -593,7 +622,7 @@ def _run():
                         _execute(c, job)
                     except Exception as e:
                         logger.error(f"Failed: {job['output']}")
-                        logger.error(f"{type(e).__name__}: {e}")
+                        logger.error(f"{type(e).__name__}: {e}", exc_info=True)
                         try:
                             c.drop(job['output'])
                         except Exception:
@@ -612,6 +641,9 @@ def _run():
                             logger.warning(f'Table not found: {t}')
                 return (initial_jobs_to_do, jobs_to_do)
         # All jobs done well
+        if _CONFIG['export']:
+            c.export(_listify(_CONFIG['export']))
+
         return (initial_jobs_to_do, jobs_to_do)
 
 
