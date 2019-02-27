@@ -7,7 +7,6 @@ import random
 import string
 import signal
 import logging
-import platform
 from contextlib import contextmanager
 from itertools import groupby
 
@@ -41,21 +40,24 @@ _JOBS = {}
 _TEMP = "_temp"
 # sqlite3 keywords
 _RESERVED_KEYWORDS = {
-    "ABORT", "ACTION", "ADD", "AFTER", "ALL", "ALTER", "ANALYZE", "AND", "AS", "ASC", "ATTACH",
-    "AUTOINCREMENT", "BEFORE", "BEGIN", "BETWEEN", "BY", "CASCADE", "CASE", "CAST", "CHECK",
-    "COLLATE", "COLUMN", "COMMIT", "CONFLICT", "CONSTRAINT", "CREATE", "CROSS", "CURRENT",
-    "CURRENT_DATE", "CURRENT_TIME", "CURRENT_TIMESTAMP", "DATABASE", "DEFAULT", "DEFERRABLE",
-    "DEFERRED", "DELETE", "DESC", "DETACH", "DISTINCT", "DO", "DROP", "EACH", "ELSE", "END",
-    "ESCAPE", "EXCEPT", "EXCLUSIVE", "EXISTS", "EXPLAIN", "FAIL", "FILTER", "FOLLOWING",
-    "FOR", "FOREIGN", "FROM", "FULL", "GLOB", "GROUP", "HAVING", "IF", "IGNORE", "IMMEDIATE",
-    "IN", "INDEX", "INDEXED", "INITIALLY", "INNER", "INSERT", "INSTEAD", "INTERSECT",
-    "INTO", "IS", "ISNULL", "JOIN", "KEY", "LEFT", "LIKE", "LIMIT", "MATCH", "NATURAL",
-    "NO", "NOT", "NOTHING", "NOTNULL", "NULL", "OF", "OFFSET", "ON", "OR", "ORDER",
-    "OUTER", "OVER", "PARTITION", "PLAN", "PRAGMA", "PRECEDING", "PRIMARY", "QUERY", "RAISE",
-    "RANGE", "RECURSIVE", "REFERENCES", "REGEXP", "REINDEX", "RELEASE", "RENAME", "REPLACE",
-    "RESTRICT", "RIGHT", "ROLLBACK", "ROW", "ROWS", "SAVEPOINT", "SELECT", "SET", "TABLE",
-    "TEMP", "TEMPORARY", "THEN", "TO", "TRANSACTION", "TRIGGER", "UNBOUNDED", "UNION",
-    "UNIQUE", "UPDATE", "USING", "VACUUM", "VALUES", "VIEW", "VIRTUAL", "WHEN", "WHERE",
+    "ABORT", "ACTION", "ADD", "AFTER", "ALL", "ALTER", "ANALYZE", "AND", "AS",
+    "ASC", "ATTACH", "AUTOINCREMENT", "BEFORE", "BEGIN", "BETWEEN", "BY",
+    "CASCADE", "CASE", "CAST", "CHECK", "COLLATE", "COLUMN", "COMMIT",
+    "CONFLICT", "CONSTRAINT", "CREATE", "CROSS", "CURRENT", "CURRENT_DATE",
+    "CURRENT_TIME", "CURRENT_TIMESTAMP", "DATABASE", "DEFAULT", "DEFERRABLE",
+    "DEFERRED", "DELETE", "DESC", "DETACH", "DISTINCT", "DO", "DROP", "EACH",
+    "ELSE", "END", "ESCAPE", "EXCEPT", "EXCLUSIVE", "EXISTS", "EXPLAIN",
+    "FAIL", "FILTER", "FOLLOWING", "FOR", "FOREIGN", "FROM", "FULL", "GLOB",
+    "GROUP", "HAVING", "IF", "IGNORE", "IMMEDIATE", "IN", "INDEX", "INDEXED",
+    "INITIALLY", "INNER", "INSERT", "INSTEAD", "INTERSECT", "INTO", "IS",
+    "ISNULL", "JOIN", "KEY", "LEFT", "LIKE", "LIMIT", "MATCH", "NATURAL",
+    "NO", "NOT", "NOTHING", "NOTNULL", "NULL", "OF", "OFFSET", "ON", "OR",
+    "ORDER", "OUTER", "OVER", "PARTITION", "PLAN", "PRAGMA", "PRECEDING",
+    "PRIMARY", "QUERY", "RAISE", "RANGE", "RECURSIVE", "REFERENCES", "REGEXP",
+    "REINDEX", "RELEASE", "RENAME", "REPLACE", "RESTRICT", "RIGHT", "ROLLBACK",
+    "ROW", "ROWS", "SAVEPOINT", "SELECT", "SET", "TABLE", "TEMP", "TEMPORARY",
+    "THEN", "TO", "TRANSACTION", "TRIGGER", "UNBOUNDED", "UNION", "UNIQUE",
+    "UPDATE", "USING", "VACUUM", "VALUES", "VIEW", "VIRTUAL", "WHEN", "WHERE",
     "WINDOW", "WITH", "WITHOUT"
 }
 
@@ -90,6 +92,10 @@ class UnknownConfig(FeebeeError):
 
 
 class ReservedKeyword(FeebeeError):
+    pass
+
+
+class InvalidColumns(FeebeeError):
     pass
 
 
@@ -140,10 +146,12 @@ class _Connection:
         self._conn.row_factory = _dict_factory
         self._cursor = self._conn.cursor()
         # DO NOT re_CONFIGure pragmas. Defaults are defaults for a reason.
-        # You could make it faster but with a cost. It could corrupt the disk image of the database.
+        # You could make it faster but with a cost. It could corrupt the disk
+        # image of the database.
 
     def fetch(self, query, by=None):
-        if by and isinstance(by, list) and by != ['*'] and all(isinstance(c, str) for c in by):
+        if by and isinstance(by, list) and by != ['*'] and\
+                all(isinstance(c, str) for c in by):
             query += " order by " + ','.join(by)
         rows = self._conn.cursor().execute(query)
         if by:
@@ -169,7 +177,10 @@ class _Connection:
 
         self._cursor.execute(_create_statement(name, cols))
         istmt = _insert_statement(name, r0[0])
-        self._cursor.executemany(istmt, rs)
+        try:
+            self._cursor.executemany(istmt, rs)
+        except sqlite3.OperationalError:
+            raise InvalidColumns(cols)
 
     def load(self, filename, name, delimiter=None, quotechar='"',
              encoding='utf-8', newline="\n", fn=None):
@@ -184,9 +195,11 @@ class _Connection:
                 seq = _read_stata(filename)
             else:
                 # default delimiter is ","
-                delimiter = delimiter or ("\t" if ext.lower() == ".tsv" else ",")
-                seq = _read_csv(filename, delimiter=delimiter, quotechar=quotechar,
-                                encoding=encoding, newline=newline)
+                delimiter = delimiter or\
+                    ("\t" if ext.lower() == ".tsv" else ",")
+                seq = _read_csv(filename, delimiter=delimiter,
+                                quotechar=quotechar, encoding=encoding,
+                                newline=newline)
                 total = _line_count(filename, encoding, newline)
         else:
             # iterator, since you can pass an iterator
@@ -198,7 +211,8 @@ class _Connection:
         self.insert(tqdm(seq, total=total), name)
 
     def get_tables(self):
-        query = self._cursor.execute("select * from sqlite_master where type='table'")
+        query = self._cursor.\
+            execute("select * from sqlite_master where type='table'")
         return [row['name'] for row in query]
 
     def drop(self, tables):
@@ -226,17 +240,20 @@ class _Connection:
             eqs = []
             for c0, c1 in zip(_listify(mcols0), _listify(mcols1)):
                 if c1:
-                    # allows expression such as 'col + 4' for 'c1', for example.
-                    # somewhat sneaky though
+                    # allows expression such as 'col + 4' for 'c1',
+                    # for example. somewhat sneaky though
                     eqs.append(f't0.{c0} = t{i}.{c1}')
-            join_clauses.append(f"left join {tname1} as t{i} on {' and '.join(eqs)}")
+            join_clauses.\
+                append(f"left join {tname1} as t{i} on {' and '.join(eqs)}")
         jcs = ' '.join(join_clauses)
 
         allcols = []
         for i, (_, cols, _) in enumerate(tinfos):
             for c in _listify(cols):
                 if c == '*':
-                    allcols += [f't{i}.{c1}' for c1 in self._cols(f'select * from {tinfos[i][0]}')]
+                    allcols += [f't{i}.{c1}'
+                                for c1 in self.
+                                _cols(f'select * from {tinfos[i][0]}')]
                 else:
                     allcols.append(f't{i}.{c}')
 
@@ -247,9 +264,13 @@ class _Connection:
             ind_tname = tname + _random_string(10)
             # allows expression such as 'col + 4' for indexing, for example.
             # https://www.sqlite.org/expridx.html
-            self._cursor.execute(f"create index {ind_tname} on {tname}({', '.join(mcols1)})")
+            self._cursor.execute(f"""
+            create index {ind_tname} on {tname}({', '.join(mcols1)})""")
 
-        query = f"create table {name} as select {', '.join(allcols)} from {tname0} as t0 {jcs}"
+        query = f"""
+        create table {name} as select
+        {', '.join(allcols)} from {tname0} as t0 {jcs}
+        """
         self._cursor.execute(query)
         # drop indices, not so necessary
         for ind_tname in ind_tnames:
@@ -257,7 +278,8 @@ class _Connection:
 
     def export(self, tables):
         for table in _listify(tables):
-            with open(os.path.join(_CONFIG['ws'], table + '.csv'), 'w', encoding='utf-8', newline='') as f:
+            with open(os.path.join(_CONFIG['ws'], table + '.csv'), 'w',
+                      encoding='utf-8', newline='') as f:
                 rs = self.fetch(f'select * from {table}')
                 r0, rs = spy(rs)
                 if r0 == []:
@@ -315,21 +337,29 @@ def _execute(c, job):
     cmd = job['cmd']
     if cmd == 'load':
         c.load(job['file'], job['output'], delimiter=job['delimiter'],
-               quotechar=job['quotechar'], encoding=job['encoding'], fn=job['fn'])
+               quotechar=job['quotechar'], encoding=job['encoding'],
+               fn=job['fn'])
     elif cmd == 'map':
         tsize = c._size(job['inputs'][0])
         if job['parallel']:
-            max_workers = int(job['parallel']) if job['parallel'] >= 2 else _CONFIG['max_workers']
+            max_workers = int(job['parallel'])\
+                if job['parallel'] >= 2 else _CONFIG['max_workers']
             max_workers = min(max_workers, psutil.cpu_count())
-        if job['parallel'] and (job['by'].strip() != '*' if job['by'] else True) and\
-             max_workers > 1 and tsize >= max_workers:
-            logger.info(f"processing {job['cmd']}: {job['output']} (multiprocessing: {max_workers})")
+        if job['parallel'] and\
+            (job['by'].strip() != '*' if job['by'] else True) and\
+                max_workers > 1 and tsize >= max_workers:
+            logger.info(
+                f"processing {job['cmd']}: {job['output']}"
+                f" (multiprocessing: {max_workers})")
             _exec_parallel_map(c, job, max_workers, tsize)
         else:
             logger.info(f"processing {job['cmd']}: {job['output']}")
-            seq = c.fetch(f"select * from {job['inputs'][0]}", _listify(job['by']))
-            helper_tables = [list(c.fetch(f'select * from {tbl}')) for tbl in job['inputs'][1:]]
-            seq1 = _applyfn(job['fn'], _tqdm(seq, tsize, job['by']), helper_tables)
+            seq = c.fetch(f"select * from {job['inputs'][0]}",
+                          _listify(job['by']))
+            helper_tables = [list(c.fetch(f'select * from {tbl}'))
+                             for tbl in job['inputs'][1:]]
+            seq1 = _applyfn(job['fn'], _tqdm(seq, tsize, job['by']),
+                            helper_tables)
             c.insert(seq1, job['output'])
 
     # The only place where 'insert' is not used
@@ -358,7 +388,8 @@ def _exec_parallel_map(c, job, max_workers, tsize):
     tdir = os.path.join(_CONFIG['ws'], _TEMP)
     if not os.path.exists(tdir):
         os.makedirs(tdir)
-    dbfiles = [os.path.join(_TEMP, _random_string(10)) for _ in range(max_workers)]
+    dbfiles = [os.path.join(_TEMP, _random_string(10))
+               for _ in range(max_workers)]
 
     tcon = 'con' + _random_string(9)
     ttable = "tbl" + _random_string(9)
@@ -367,12 +398,17 @@ def _exec_parallel_map(c, job, max_workers, tsize):
     bys = _listify(job['by']) if job['by'] else None
     exe = Pool(len(dbfiles))
 
-    helper_tables = [list(c.fetch(f'select * from {tbl}')) for tbl in job['inputs'][1:]]
+    helper_tables = [list(c.fetch(f'select * from {tbl}'))
+                     for tbl in job['inputs'][1:]]
+
     def _proc(dbfile, cut):
-        query = f"select * from {ttable} where _ROWID_ > {cut[0]} and _ROWID_ <= {cut[1]}"
+        query = f"""select * from {ttable}
+        where _ROWID_ > {cut[0]} and _ROWID_ <= {cut[1]}"""
         with _connect(dbfile) as c1:
             n = cut[1] - cut[0]
-            seq = _applyfn(job['fn'], _tqdm(c1.fetch(query, by=bys), n, by=bys), helper_tables)
+            seq = _applyfn(job['fn'],
+                           _tqdm(c1.fetch(query, by=bys), n, by=bys),
+                           helper_tables)
             try:
                 c1.insert(seq, job['output'])
             except NoRowToInsert:
@@ -395,7 +431,9 @@ def _exec_parallel_map(c, job, max_workers, tsize):
         # collect tables from dbfiles
         for dbfile in succeeded_dbfiles:
             c._cursor.execute(f"attach database '{dbfile}' as {tcon}")
-            c._cursor.execute(f"insert into {job['output']} select * from {tcon}.{job['output']}")
+            c._cursor.execute(f"""
+            insert into {job['output']} select * from {tcon}.{job['output']}
+            """)
             c._conn.commit()
             c._cursor.execute(f"detach database {tcon}")
 
@@ -410,27 +448,31 @@ def _exec_parallel_map(c, job, max_workers, tsize):
         try:
             c._cursor.execute(f"attach database '{dbfiles[0]}' as {tcon}")
             c._cursor.execute(f"""
-            create table {tcon}.{ttable} as select * from {itable} order by {','.join(bys)}
+            create table {tcon}.{ttable} as select * from {itable}
+            order by {','.join(bys)}
             """)
             c._conn.commit()
             c._cursor.execute(f"detach database {tcon}")
 
             with _connect(dbfiles[0]) as c1:
                 def nth_gcols(n):
-                    c1._cursor.execute(f"select * from {ttable} where _ROWID_ == {n} limit 1")
+                    c1._cursor.execute(f"""select * from {ttable}
+                    where _ROWID_ == {n} limit 1""")
                     r = c1._cursor.fetchone()
                     return [r[c] for c in bys]
 
                 def where1(br):
-                    return ' and '.join(f"{c} = {repr(v)}" for c, v in zip(bys, nth_gcols(br)))
+                    return ' and '.join(f"{c} = {repr(v)}"
+                                        for c, v in zip(bys, nth_gcols(br)))
 
                 def build_wheres(breaks):
                     return ' or '.join(where1(br) for br in breaks)
 
-                newbreaks = [list(r.values())[0] for r in c1._cursor.execute(f"""
-                select _ROWID_ from {ttable}
-                where {build_wheres(breaks)} group by {','.join(bys)} having MAX(_ROWID_)
-                """)] + [tsize]
+                newbreaks = [list(r.values())[0] for r in c1._cursor.
+                             execute(f"""select _ROWID_ from {ttable}
+                                      where {build_wheres(breaks)} group by
+                                      {','.join(bys)} having MAX(_ROWID_)""")]\
+                    + [tsize]
             for dbfile in dbfiles[1:]:
                 copyfile(dbfiles[0], dbfile)
 
@@ -443,7 +485,8 @@ def _exec_parallel_map(c, job, max_workers, tsize):
     else:
         try:
             c._cursor.execute(f"attach database '{dbfiles[0]}' as {tcon}")
-            c._cursor.execute(f"create table {tcon}.{ttable} as select * from {itable}")
+            c._cursor.execute(f"""create table {tcon}.{ttable}
+             as select * from {itable}""")
             c._conn.commit()
             c._cursor.execute(f"detach database {tcon}")
             for dbfile in dbfiles[1:]:
@@ -587,7 +630,7 @@ def _run():
 
         def is_doable(job):
             missing_tables = get_missing_tables()
-            return all(table not in missing_tables for table in job['inputs']) \
+            return all(table not in missing_tables for table in job['inputs'])\
                 and job['output'] in missing_tables
 
         graph = build_graph(jobs)
@@ -597,11 +640,13 @@ def _run():
             pass
 
         # delete tables that start with underscore
-        c.drop([job['output'] for job in jobs if job['output'].startswith('_')])
+        c.drop([job['output']
+               for job in jobs if job['output'].startswith('_')])
         if _CONFIG['refresh']:
             c.drop(_listify(_CONFIG['refresh']))
 
-        starting_points = [job['output'] for job in jobs if job['cmd'] == 'load']
+        starting_points = [job['output']
+                           for job in jobs if job['cmd'] == 'load']
         paths = []
         for sp in starting_points:
             paths += dfs(graph, [sp], [])
@@ -618,7 +663,8 @@ def _run():
                 if is_doable(job):
                     try:
                         if job['cmd'] != 'map':
-                            logger.info(f"processing {job['cmd']}: {job['output']}")
+                            logger.info(
+                                f"processing {job['cmd']}: {job['output']}")
                         _execute(c, job)
                     except Exception as e:
                         logger.error(f"Failed: {job['output']}")
@@ -628,7 +674,9 @@ def _run():
                         except Exception:
                             pass
 
-                        logger.warning(f"Unfinished: {[job['output'] for job in jobs_to_do]}")
+                        logger.warning(
+                            f"Unfinished: "
+                            f"{[job['output'] for job in jobs_to_do]}")
                         return (initial_jobs_to_do, jobs_to_do)
                     del jobs_to_do[i]
                     cnt += 1
@@ -695,8 +743,10 @@ def _insert_statement(name, d):
     return "insert into %s values (%s)" % (name, keycols)
 
 
-def _read_csv(filename, delimiter=',', quotechar='"', encoding='utf-8', newline="\n"):
-    with open(os.path.join(_CONFIG['ws'], filename), encoding=encoding, newline=newline) as f:
+def _read_csv(filename, delimiter=',', quotechar='"',
+              encoding='utf-8', newline="\n"):
+    with open(os.path.join(_CONFIG['ws'], filename),
+              encoding=encoding, newline=newline) as f:
         header = [c.strip() for c in f.readline().split(delimiter)]
         yield from csv.DictReader(f, fieldnames=header,
                                   delimiter=delimiter, quotechar=quotechar)

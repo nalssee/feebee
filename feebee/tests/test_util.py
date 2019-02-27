@@ -1,17 +1,17 @@
 import os
 import sys
 import unittest
-import sqlite3
 from random import shuffle
 import statsmodels.api as sm
+import numpy as np
 
 TESTPATH = os.path.dirname(os.path.realpath(__file__))
 PYPATH = os.path.join(TESTPATH, '..', '..')
 sys.path.append(PYPATH)
 
 import feebee as fb
-from feebee.util import chunk, lag, add_date, read_date, isnum, readxl, grouper, listify, truncate,\
-    avg, winsorize, group, numbering, affix, where, overlap, set_default, allnum, getX, gety
+from feebee.util import chunk, lag, add_date, read_date, isnum, readxl, grouper, listify,\
+    avg, group, where, overlap, set_default, allnum, getX, gety
 
 # only for testing
 import feebee.feebee as fb1
@@ -36,6 +36,7 @@ def ndate(n):
     return lambda date: add_date(date, n)
 
 
+# some of the depricated functions
 def fnguide(fname, colnames, sheet=None, encoding='euc-kr'):
     colnames = listify(colnames)
     ncols = len(colnames)
@@ -51,6 +52,84 @@ def fnguide(fname, colnames, sheet=None, encoding='euc-kr'):
         date = str(rs[0])[:10]
         for id, vals in zip(ids, grouper(rs[1:], ncols)):
             yield {'id': id, 'date': date, **{c: v for c, v in zip(colnames, vals)}}
+
+
+def _num1(rs, c, p):
+    rs = [r for r in rs if isnum(r[c])]
+    rs.sort(key=lambda r: r[c])
+    rss = chunk(rs, p) if isinstance(p, int) else p(rs)
+    for i, rs1 in enumerate(rss, 1):
+        for r in rs1:
+            r['pn_' + c] = i
+    return rss
+
+
+def numbering(d, dep=False):
+    def fni(rs, cps):
+        if cps:
+            c, p = cps[0]
+            _num1(rs, c, p)
+            fni(rs, cps[1:])
+        return rs
+
+    def fnd(rs, cps):
+        if cps:
+            c, p = cps[0]
+            for rs1 in _num1(rs, c, p):
+                fnd(rs1, cps[1:])
+        return rs
+
+    cps = [(c, p) for c, p in d.items()]
+    def fn(rs):
+        for c, _ in cps:
+            for r in rs:
+                r['pn_' + c] = ''
+        return fnd(rs, cps) if dep else fni(rs, cps)
+    return fn
+
+
+def winsorize(rs, col, limit=0.01):
+    """Winsorsize rows that are out of limits
+    Args:
+        |  col(str): column name.
+        |  limit(float): for both sides respectably.
+    returns rs
+    """
+    rs = [r for r in rs if isnum(r[col])]
+    xs = [r[col] for r in rs]
+    lower = np.percentile(xs, limit * 100)
+    higher = np.percentile(xs, (1 - limit) * 100)
+    for r in rs:
+        if r[col] > higher:
+            r[col] = higher
+        elif r[col] < lower:
+            r[col] = lower
+    return rs
+
+
+def truncate(rs, col, limit=0.01):
+    """Truncate rows that are out of limits
+    Args:
+        |  col(str): column name
+        |  limit(float): for both sides respectably.
+    Returns self
+    """
+    rs = [r for r in rs if isnum(r[col])]
+    xs = [r[col] for r in rs]
+    lower = np.percentile(xs, limit * 100)
+    higher = np.percentile(xs, (1 - limit) * 100)
+    return [r for r in rs if r[col] >= lower and r[col] <= higher]
+
+
+def affix(**kwargs):
+    def fn(r):
+        for k, v in kwargs.items():
+            try:
+                r[k] = v(r)
+            except:
+                r[k] = ''
+        return r
+    return fn
 
 
 class TestEmAll(unittest.TestCase):
@@ -330,7 +409,6 @@ class TestEmAll(unittest.TestCase):
         self.assertEqual(len(allnum(rs, 'a, b')), 1)
         self.assertEqual(len(allnum(rs, 'a')), 2)
         self.assertEqual(len(allnum(rs, 'b')), 2)
-
 
     def tearDown(self):
         remdb()

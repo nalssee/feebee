@@ -4,7 +4,6 @@ from openpyxl import load_workbook
 from datetime import timedelta
 import numpy as np
 from itertools import zip_longest, accumulate, groupby, chain
-import pandas as pd
 import ciso8601
 
 
@@ -53,7 +52,7 @@ def lag(cols, datecol, ns, add1fn=None, max_missings=10_000):
             x0 = xs[0]
             for n, x in zip(ns, xs[1:]):
                 for c in cols:
-                    strn = str(n) if n >=0 else str(-n) + 'n'
+                    strn = str(n) if n >= 0 else str(-n) + 'n'
                     x0[c + suffix + strn] = x[c]
             result.append(x0)
         return result
@@ -70,17 +69,6 @@ def where(pred, fn=None):
         return func
     else:
         return lambda r: (r if pred(r) else None)
-
-
-def affix(**kwargs):
-    def fn(r):
-        for k, v in kwargs.items():
-            try:
-                r[k] = v(r)
-            except:
-                r[k] = ''
-        return r
-    return fn
 
 
 def read_date(date):
@@ -171,39 +159,6 @@ def chunk(rs, n, column=None):
         return result
 
 
-def winsorize(rs, col, limit=0.01):
-    """Winsorsize rows that are out of limits
-    Args:
-        |  col(str): column name.
-        |  limit(float): for both sides respectably.
-    returns rs
-    """
-    rs = [r for r in rs if isnum(r[col])]
-    xs = [r[col] for r in rs]
-    lower = np.percentile(xs, limit * 100)
-    higher = np.percentile(xs, (1 - limit) * 100)
-    for r in rs:
-        if r[col] > higher:
-            r[col] = higher
-        elif r[col] < lower:
-            r[col] = lower
-    return rs
-
-
-def truncate(rs, col, limit=0.01):
-    """Truncate rows that are out of limits
-    Args:
-        |  col(str): column name
-        |  limit(float): for both sides respectably.
-    Returns self
-    """
-    rs = [r for r in rs if isnum(r[col])]
-    xs = [r[col] for r in rs]
-    lower = np.percentile(xs, limit * 100)
-    higher = np.percentile(xs, (1 - limit) * 100)
-    return [r for r in rs if r[col] >= lower and r[col] <= higher]
-
-
 def isnum(*xs):
     """ Tests if x is numeric
     """
@@ -240,7 +195,8 @@ def listify(x):
             return [x]
 
 
-def readxl(fname, sheets=None, encoding='utf-8', delimiter=None, quotechar='"', newline='\n'):
+def readxl(fname, sheets=None, encoding='utf-8', delimiter=None,
+           quotechar='"', newline='\n'):
     """ Reads excel like files and yields a list of values
     """
     # locale is set in fb.run()
@@ -255,10 +211,11 @@ def readxl(fname, sheets=None, encoding='utf-8', delimiter=None, quotechar='"', 
     # csv, tsv, ssv ...
     if not (fname.endswith('.xls') or fname.endswith('.xlsx')):
         # default delimiter is ","
-        delimiter = delimiter or ("\t" if fname.lower().endswith('.tsv') else ",")
+        delimiter = delimiter or ("\t" if fname.lower().endswith('.tsv')
+                                  else ",")
         with open(fname, encoding=encoding, newline=newline) as fin:
-            for rs in csv.reader((x.replace('\0', '') for x in fin),\
-                delimiter=delimiter, quotechar=quotechar):
+            for rs in csv.reader((x.replace('\0', '') for x in fin),
+                                 delimiter=delimiter, quotechar=quotechar):
                 yield [conv(x) for x in rs]
     else:
         workbook = load_workbook(fname, read_only=True)
@@ -296,52 +253,16 @@ def overlap(rs, size, step=1, key=None):
 def avg(rs, col, wcol=None, ndigits=None):
     if wcol:
         xs = [r for r in rs if isnum(r[col], r[wcol])]
-        val = np.average([x[col] for x in xs], weights=[x[wcol] for x in xs]) if xs else ''
+        val = np.average([x[col] for x in xs], weights=[x[wcol] for x in xs])\
+            if xs else ''
     else:
         xs = [r for r in rs if isnum(r[col])]
         val = np.average([x[col] for x in xs]) if xs else ''
     return round(val, ndigits) if ndigits and xs else val
 
 
-def _num1(rs, c, p):
-    rs = [r for r in rs if isnum(r[c])]
-    rs.sort(key=lambda r: r[c])
-    rss = chunk(rs, p) if isinstance(p, int) else p(rs)
-    for i, rs1 in enumerate(rss, 1):
-        for r in rs1:
-            r['pn_' + c] = i
-    return rss
-
-
-def numbering(d, dep=False):
-    def fni(rs, cps):
-        if cps:
-            c, p = cps[0]
-            _num1(rs, c, p)
-            fni(rs, cps[1:])
-        return rs
-
-    def fnd(rs, cps):
-        if cps:
-            c, p = cps[0]
-            for rs1 in _num1(rs, c, p):
-                fnd(rs1, cps[1:])
-        return rs
-
-    cps = [(c, p) for c, p in d.items()]
-    def fn(rs):
-        for c, _ in cps:
-            for r in rs:
-                r['pn_' + c] = ''
-        return fnd(rs, cps) if dep else fni(rs, cps)
-    return fn
-
-
 def _empty(r):
-    r0 = {}
-    for c in r:
-        r0[c] = ''
-    return r0
+    return {c: '' for c in r}
 
 
 def _build_keyfn(key):
