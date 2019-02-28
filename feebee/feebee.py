@@ -175,9 +175,9 @@ class _Connection:
             if _is_reserved(x):
                 raise ReservedKeyword(x)
 
-        self._cursor.execute(_create_statement(name, cols))
-        istmt = _insert_statement(name, r0[0])
         try:
+            self._cursor.execute(_create_statement(name, cols))
+            istmt = _insert_statement(name, r0[0])
             self._cursor.executemany(istmt, rs)
         except sqlite3.OperationalError:
             raise InvalidColumns(cols)
