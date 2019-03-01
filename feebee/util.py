@@ -59,6 +59,36 @@ def lag(cols, datecol, ns, add1fn=None, max_missings=10_000):
     return fn
 
 
+def step(*grouped_seqs):
+    keys = [None] * len(grouped_seqs)
+    vals = [None] * len(grouped_seqs)
+
+    def update(i, gs):
+        try:
+            k, rs = next(gs)
+            keys[i] = k
+            vals[i] = list(rs)
+        except StopIteration:
+            keys[i] = None
+            vals[i] = None
+
+    for i, gs in enumerate(grouped_seqs):
+        update(i, gs)
+
+    while not all(k is None for k in keys):
+        minkey = min(k for k in keys if k)
+        result1 = []
+        for i, (truth, k, v, g) in\
+                enumerate(zip((k == minkey for k in keys), keys,
+                              vals, grouped_seqs)):
+            if truth:
+                update(i, g)
+                result1.append(v)
+            else:
+                result1.append(None)
+        yield result1
+
+
 def where(pred, fn=None):
     """ Filter with pred before you apply fn to a list of rows.
         if fn is not given, simply filter with pred
@@ -233,13 +263,6 @@ def group(rs, key):
     keyfn = _build_keyfn(key)
     rs.sort(key=keyfn)
     return [list(rs1) for _, rs1 in groupby(rs, keyfn)]
-
-
-def grouper(iterable, n, fillvalue=None):
-    "Collect data into fixed-length chunks or blocks"
-    # grouper('ABCDEFG', 3, 'x') --> ABC DEF Gxx
-    args = [iter(iterable)] * n
-    return zip_longest(fillvalue=fillvalue, *args)
 
 
 def overlap(rs, size, step=1, key=None):

@@ -99,6 +99,10 @@ class InvalidColumns(FeebeeError):
     pass
 
 
+class TableDuplication(FeebeeError):
+    pass
+
+
 @contextmanager
 def _connect(dbfile):
     conn = _Connection(dbfile)
@@ -373,6 +377,12 @@ def _execute(c, job):
                     yield r
         c.insert(gen(), job['output'])
 
+    elif cmd == 'llvl':
+        c.insert(job['fn'](*(c.fetch(
+            f"select * from {tbl} order by {','.join(_listify(cols))}")
+            for tbl, cols in job['tables'].items())),
+            job['output'])
+
 
 def _line_count(fname, encoding, newline):
     with open(fname, encoding=encoding, newline=newline) as f:
@@ -398,7 +408,7 @@ def _exec_parallel_map(c, job, max_workers, tsize):
     bys = _listify(job['by']) if job['by'] else None
     exe = Pool(len(dbfiles))
 
-    helper_tables = [fn(list(c.fetch(f'select * from {tbl} order by _ROWID_')))
+    helper_tables = [fn(list(c.fetch(f'select * from {tbl}')))
                      for tbl, fn in job['tables'].items()]
 
     def _proc(dbfile, cut):
@@ -539,10 +549,21 @@ def union(inputs):
     }
 
 
+# data: {'tname1': 'col1, col2', 'tname2': 'col1'}
+# fetch tables ordered by cols
+def llvl(fn=None, data=None):
+    return {
+        'cmd': 'llvl',
+        'fn': fn,
+        'inputs': list(data),
+        'tables': data
+    }
+
+
 def register(**kwargs):
     for k, _ in kwargs.items():
         if _JOBS.get(k, False):
-            raise ValueError(f"Table duplication: {k}")
+            raise TableDuplication(k)
     _JOBS.update(kwargs)
 
 

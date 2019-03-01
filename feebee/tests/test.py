@@ -2,6 +2,7 @@ import os
 import sys
 import unittest
 import sqlite3
+from itertools import groupby
 
 TESTPATH = os.path.dirname(os.path.realpath(__file__))
 PYPATH = os.path.join(TESTPATH, '..', '..')
@@ -10,6 +11,7 @@ sys.path.append(PYPATH)
 import feebee as fb
 # only for testing
 import feebee.feebee as fb1
+from feebee.util import step
 
 # customers.csv
 # CustomerID,CustomerName,ContactName,Address,City,PostalCode,Country
@@ -578,6 +580,48 @@ class TestRun(unittest.TestCase):
             self.assertEqual(fet(c, 'orders_sample'), fet(c, 'foo'))
         if os.path.exists('orders_sample.csv'):
             os.remove('orders_sample.csv')
+
+
+class TestLLVL(unittest.TestCase):
+    def test_llvl1(self):
+        # you can do much more complex joining jobs than this using llvl
+        initialize()
+        def join1(seq1, seq2):
+            seq1 = groupby(seq1, key=lambda r: r['cust_id'])
+            seq2 = groupby(seq2, key=lambda r: r['cust_id'])
+            # full join
+            for rs1, rs2 in step(seq1, seq2):
+                if rs1 and rs2:
+                    for r1 in rs1:
+                        for r2 in rs2:
+                            r1['cust_name'] = r2['cust_name']
+                            yield r1
+
+                if not rs1:
+                   for r2 in rs2:
+                        yield {
+                            'order_num': '',
+                            'order_date': '',
+                            'cust_id': rs2[0]['cust_id'],
+                            'cust_name': rs2[0]['cust_name'],
+                        }
+
+                if not rs2:
+                    for r1 in rs1:
+                        r1['cust_name'] = ''
+                        yield r1
+
+        fb.register(
+            tysql_Orders = fb.load('tysql_Orders.csv'),
+            tysql_Customers = fb.load('tysql_Customers.csv'),
+            tysql_Orders1 = fb.llvl(join1, {'tysql_Orders': 'cust_id', 'tysql_Customers': 'cust_id'}),
+        )
+
+        fb.run()
+        with fb1._connect('test.db') as c:
+            for r in fet(c, 'tysql_Orders1'):
+                print(r)
+
 
 
 # utils
