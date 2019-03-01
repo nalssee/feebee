@@ -46,13 +46,13 @@ def fnguide(fname, colnames, sheet=None, encoding='euc-kr'):
     for _ in range(8):
         next(rss)
     # firmcodes
-    ids = [x[0] for x in grouper(next(rss)[1:], ncols)]
+    ids = [x[0] for x in grouper(ncols, next(rss)[1:])]
     for _ in range(5):
         next(rss)
 
     for rs in rss:
         date = str(rs[0])[:10]
-        for id, vals in zip(ids, grouper(rs[1:], ncols)):
+        for id, vals in zip(ids, grouper(ncols, rs[1:])):
             yield {'id': id, 'date': date, **{c: v for c, v in zip(colnames, vals)}}
 
 
