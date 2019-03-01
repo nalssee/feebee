@@ -82,6 +82,7 @@ def numbering(d, dep=False):
         return rs
 
     cps = [(c, p) for c, p in d.items()]
+
     def fn(rs):
         for c, _ in cps:
             for r in rs:
@@ -138,8 +139,8 @@ class TestEmAll(unittest.TestCase):
     def setUp(self):
         initialize()
         fb.register(
-            orderdetails = fb.load('orderdetails.csv'),
-            orders = fb.load('orders.csv'),
+            orderdetails=fb.load('orderdetails.csv'),
+            orders=fb.load('orders.csv'),
         )
         fb.run()
 
@@ -196,13 +197,13 @@ class TestEmAll(unittest.TestCase):
             with self.assertRaises(ValueError):
                 result = lag('orderid, customerid', 'orderdate', [1, 2, -1], ndate(1))(rs)
 
-            del rs[2] # raise exception for duplicates, so.
-            del rs[-2] # Just for the heck of it
+            del rs[2]  # raise exception for duplicates, so.
+            del rs[-2]  # Just for the heck of it
             result = lag('orderid, customerid', 'orderdate', [1, 2, -1], ndate(1))(rs)
 
             self.assertEqual([r['orderdate'] for r in result],
-                ['1996-07-04', '1996-07-05', '1996-07-06', '1996-07-07',
-                 '1996-07-08', '1996-07-09', '1996-07-10', '1996-07-11'])
+                             ['1996-07-04', '1996-07-05', '1996-07-06', '1996-07-07',
+                              '1996-07-08', '1996-07-09', '1996-07-10', '1996-07-11'])
             self.assertEqual(
                 [r['orderid'] for r in result],
                 [10248, 10249, '', '', 10251, 10252, '', 10254]
@@ -234,16 +235,16 @@ class TestEmAll(unittest.TestCase):
 
     def test_readxl(self):
         fb.register(
-            foreign = fb.load(fnguide('foreign.xlsx', 'buy, sell')),
+            foreign=fb.load(fnguide('foreign.xlsx', 'buy, sell')),
         )
         # 'foreign' is reserved
         with self.assertRaises(fb1.ReservedKeyword):
             fb.run()
         fb1._JOBS = {}
         fb.register(
-            tvol = fb.load(fnguide('foreign.xlsx', 'buy, sell')),
-            size = fb.load(fnguide('foreign.xlsx', sheet='size', colnames='size, forsize')),
-            mdata = fb.load(fnguide('mdata.csv', colnames='a, b, c, d')),
+            tvol=fb.load(fnguide('foreign.xlsx', 'buy, sell')),
+            size=fb.load(fnguide('foreign.xlsx', sheet='size', colnames='size, forsize')),
+            mdata=fb.load(fnguide('mdata.csv', colnames='a, b, c, d')),
         )
         fb.run()
 
@@ -257,12 +258,13 @@ class TestEmAll(unittest.TestCase):
 
     def test_listify(self):
         self.assertEqual(listify('a, b, c'), ['a', 'b', 'c'])
-        self.assertEqual(listify(3), [3])
+        # return as is
+        self.assertEqual(listify(3), 3)
         self.assertEqual(listify([1, 2]), [1, 2])
 
     def test_truncate(self):
         fb.register(
-            products = fb.load('products.csv'),
+            products=fb.load('products.csv'),
         )
         fb.run()
         with fb1._connect('test_util.db') as c:
@@ -271,7 +273,7 @@ class TestEmAll(unittest.TestCase):
 
     def test_winsorize(self):
         fb.register(
-            products = fb.load('products.csv'),
+            products=fb.load('products.csv'),
         )
         fb.run()
 
@@ -283,7 +285,7 @@ class TestEmAll(unittest.TestCase):
 
     def test_avg(self):
         fb.register(
-            products = fb.load('products.csv'),
+            products=fb.load('products.csv'),
         )
         fb.run()
 
@@ -294,7 +296,7 @@ class TestEmAll(unittest.TestCase):
 
     def test_ols(self):
         fb.register(
-            products = fb.load('products.csv'),
+            products=fb.load('products.csv'),
         )
         fb.run()
 
@@ -313,7 +315,7 @@ class TestEmAll(unittest.TestCase):
 
     def test_group(self):
         fb.register(
-            customers = fb.load('customers.csv'),
+            customers=fb.load('customers.csv'),
         )
         fb.run()
 
@@ -324,7 +326,7 @@ class TestEmAll(unittest.TestCase):
                                   1, 3, 5, 1, 1, 2, 5, 2, 2, 7, 13, 4])
 
     def test_numbering(self):
-        rs = [{'a': i // 2 if i %  2 == 0 else '', 'b': i // 3 if i % 3 == 0 else ''} for i in range(1, 101)]
+        rs = [{'a': i // 2 if i % 2 == 0 else '', 'b': i // 3 if i % 3 == 0 else ''} for i in range(1, 101)]
         shuffle(rs)
         numbering({'a': 2, 'b': 3})(rs)
         rs = [r for r in rs if isnum(r['a'], r['b'])]
@@ -333,7 +335,7 @@ class TestEmAll(unittest.TestCase):
             [1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3]
         )
 
-        rs = [{'a': i // 2 if i %  2 == 0 else '', 'b': i // 3 if i % 3 == 0 else ''} for i in range(1, 101)]
+        rs = [{'a': i // 2 if i % 2 == 0 else '', 'b': i // 3 if i % 3 == 0 else ''} for i in range(1, 101)]
         shuffle(rs)
         numbering({'a': 2, 'b': 3}, True)(rs)
         rs = [r for r in rs if isnum(r['a'], r['b'])]
@@ -371,7 +373,7 @@ class TestEmAll(unittest.TestCase):
         rs = [{'a': i} for i in range(10)]
         rss = overlap(rs, 5, 3)
         self.assertEqual([[r['a'] for r in rs1] for rs1 in rss],
-            [[0, 1, 2, 3, 4], [3, 4, 5, 6, 7], [6, 7, 8, 9], [9]])
+                         [[0, 1, 2, 3, 4], [3, 4, 5, 6, 7], [6, 7, 8, 9], [9]])
 
         with fb1._connect('test_util.db') as c:
             rs = []
@@ -412,7 +414,6 @@ class TestEmAll(unittest.TestCase):
         self.assertEqual(len(allnum(rs, 'a')), 2)
         self.assertEqual(len(allnum(rs, 'b')), 2)
 
-
     def test_step(self):
         rs1 = [
             {'a': 10},
@@ -436,7 +437,6 @@ class TestEmAll(unittest.TestCase):
         for a, b in step(rs1, rs2):
             result.append((a[0]['a'] if a else None, b[0]['a'] if b else None))
         self.assertEqual(result, [(-3, None), (None, 3), (10, 10), (12, 12), (None, 30)])
-
 
     def tearDown(self):
         remdb()

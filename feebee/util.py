@@ -3,7 +3,7 @@ import csv
 from openpyxl import load_workbook
 from datetime import timedelta
 import numpy as np
-from itertools import zip_longest, accumulate, groupby, chain
+from itertools import accumulate, groupby, chain
 import ciso8601
 
 
@@ -216,13 +216,18 @@ def stars(pval):
 
 
 def listify(x):
+    """
+    Attempt to turn it into a list if possible
+    if not return as is
+    """
     try:
         return [x1.strip() for x1 in x.split(',')]
     except AttributeError:
         try:
             return list(iter(x))
         except TypeError:
-            return [x]
+            # x not [x]
+            return x
 
 
 def readxl(fname, sheets=None, encoding='utf-8', delimiter=None,
@@ -301,5 +306,4 @@ def _build_keyfn(key):
     if len(colnames) == 1:
         col = colnames[0]
         return lambda r: r[col]
-    else:
-        return lambda r: [r[colname] for colname in colnames]
+    return lambda r: [r[colname] for colname in colnames]

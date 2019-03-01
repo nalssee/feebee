@@ -20,6 +20,8 @@ from pathos.multiprocessing import ProcessingPool as Pool
 from tqdm import tqdm
 from shutil import copyfile
 
+from .util import listify, _build_keyfn
+
 
 _locale = 'English_United States.1252' if os.name == 'nt' else 'en_US.UTF-8'
 
@@ -70,7 +72,6 @@ coloredlogs.install(
 logger = logging.getLogger(__name__)
 
 
-# TODO: better error messages
 class FeebeeError(Exception):
     pass
 
@@ -220,7 +221,7 @@ class _Connection:
         return [row['name'] for row in query]
 
     def drop(self, tables):
-        tables = _listify(tables)
+        tables = listify(tables)
         for table in tables:
             if _is_reserved(table):
                 raise ReservedKeyword(table)
@@ -230,7 +231,7 @@ class _Connection:
         # check if a colname is a reserved keyword
         newcols = []
         for _, _cols, _ in tinfos:
-            _cols = [c.upper() for c in _listify(_cols)]
+            _cols = [c.upper() for c in listify(_cols)]
             for c in _cols:
                 if 'AS' in c:
                     newcols.append(c.split('AS')[-1])
@@ -242,7 +243,7 @@ class _Connection:
         join_clauses = []
         for i, (tname1, _, mcols1) in enumerate(tinfos[1:], 1):
             eqs = []
-            for c0, c1 in zip(_listify(mcols0), _listify(mcols1)):
+            for c0, c1 in zip(listify(mcols0), listify(mcols1)):
                 if c1:
                     # allows expression such as 'col + 4' for 'c1',
                     # for example. somewhat sneaky though
@@ -253,7 +254,7 @@ class _Connection:
 
         allcols = []
         for i, (_, cols, _) in enumerate(tinfos):
-            for c in _listify(cols):
+            for c in listify(cols):
                 if c == '*':
                     allcols += [f't{i}.{c1}'
                                 for c1 in self.
@@ -264,7 +265,7 @@ class _Connection:
         # create indices
         ind_tnames = []
         for tname, _, mcols in tinfos:
-            mcols1 = [c for c in _listify(mcols) if c]
+            mcols1 = [c for c in listify(mcols) if c]
             ind_tname = tname + _random_string(10)
             # allows expression such as 'col + 4' for indexing, for example.
             # https://www.sqlite.org/expridx.html
@@ -281,7 +282,7 @@ class _Connection:
             self._cursor.execute(f"drop index {ind_tname}")
 
     def export(self, tables):
-        for table in _listify(tables):
+        for table in listify(tables):
             with open(os.path.join(_CONFIG['ws'], table + '.csv'), 'w',
                       encoding='utf-8', newline='') as f:
                 rs = self.fetch(f'select * from {table}')
@@ -359,7 +360,7 @@ def _execute(c, job):
         else:
             logger.info(f"processing {job['cmd']}: {job['output']}")
             seq = c.fetch(f"select * from {job['inputs'][0]}",
-                          _listify(job['by']))
+                          listify(job['by']))
             helper_tables = [fn(list(c.fetch(f'select * from {tbl}')))
                              for tbl, fn in job['tables']]
             seq1 = _applyfn(job['fn'], _tqdm(seq, tsize, job['by']),
@@ -379,7 +380,7 @@ def _execute(c, job):
 
     elif cmd == 'llvl':
         c.insert(job['fn'](*(c.fetch(
-            f"select * from {tbl} order by {','.join(_listify(cols))}")
+            f"select * from {tbl} order by {','.join(listify(cols))}")
             for tbl, cols in job['tables'])),
             job['output'])
 
@@ -405,7 +406,7 @@ def _exec_parallel_map(c, job, max_workers, tsize):
     ttable = "tbl" + _random_string(9)
     # Rather expensive
     breaks = [int(i * tsize / max_workers) for i in range(1, max_workers)]
-    bys = _listify(job['by']) if job['by'] else None
+    bys = listify(job['by']) if job['by'] else None
     exe = Pool(len(dbfiles))
 
     helper_tables = [fn(list(c.fetch(f'select * from {tbl}')))
@@ -545,7 +546,7 @@ def join(*args):
 def union(inputs):
     return {
         'cmd': 'union',
-        'inputs': _listify(inputs)
+        'inputs': listify(inputs)
     }
 
 
@@ -669,7 +670,7 @@ def _run():
         c.drop([job['output']
                for job in jobs if job['output'].startswith('_')])
         if _CONFIG['refresh']:
-            c.drop(_listify(_CONFIG['refresh']))
+            c.drop(listify(_CONFIG['refresh']))
 
         starting_points = [job['output']
                            for job in jobs if job['cmd'] == 'load']
@@ -716,7 +717,7 @@ def _run():
                 return (initial_jobs_to_do, jobs_to_do)
         # All jobs done well
         if _CONFIG['export']:
-            c.export(_listify(_CONFIG['export']))
+            c.export(listify(_CONFIG['export']))
 
         return (initial_jobs_to_do, jobs_to_do)
 
@@ -726,26 +727,6 @@ def _random_string(nchars):
     chars = string.ascii_letters + string.digits
     return ''.join(random.SystemRandom().choice(chars)
                    for _ in range(nchars))
-
-
-def _listify(x):
-    if isinstance(x, str):
-        return [x1.strip() for x1 in x.split(',')]
-    if isinstance(x, tuple):
-        return list(x)
-    return x
-
-
-def _build_keyfn(key):
-    colnames = _listify(key)
-    # special case
-    if colnames == ['*']:
-        return lambda r: 1
-
-    if len(colnames) == 1:
-        col = colnames[0]
-        return lambda r: r[col]
-    return lambda r: [r[colname] for colname in colnames]
 
 
 # primary keys are too much for non-experts

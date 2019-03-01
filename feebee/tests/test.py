@@ -39,6 +39,7 @@ def initialize():
     fb1._JOBS = {}
     fb.run()
 
+
 class TestLoading(unittest.TestCase):
     def setUp(self):
         initialize()
@@ -50,20 +51,20 @@ class TestLoading(unittest.TestCase):
         self.assertIn(name + '.db', os.listdir())
 
     def test_loading_ordinary_csv(self):
-        fb.register(orders = fb.load('orders.csv'))
+        fb.register(orders=fb.load('orders.csv'))
         fb.run()
         with fb1._connect('test.db') as c:
             self.assertEqual(len(list(fet(c, 'orders'))), nlines_file('orders.csv') - 1)
 
     # TODO: some of the other options like encoding must be tested
     def test_loading_ordinary_tsv(self):
-        fb.register(markit = fb.load('markit.tsv'))
+        fb.register(markit=fb.load('markit.tsv'))
         fb.run()
         with fb1._connect('test.db') as c:
             self.assertEqual(len(list(fet(c, 'markit'))), nlines_file('markit.tsv') - 1)
 
     def test_loading_semicolon_separated_file(self):
-        fb.register(orders1 = fb.load('orders1.txt', delimiter=";"))
+        fb.register(orders1=fb.load('orders1.txt', delimiter=";"))
         fb.run()
         with fb1._connect('test.db') as c:
             self.assertEqual(len(list(fet(c, 'orders1'))), nlines_file('orders1.txt') - 1)
@@ -73,8 +74,8 @@ class TestLoading(unittest.TestCase):
 
     def test_loading_excel_files(self):
         fb.register(
-            ff = fb.load('ff.xls'),
-            ff1 = fb.load('ff.xlsx'),
+            ff=fb.load('ff.xls'),
+            ff1=fb.load('ff.xlsx'),
         )
         fb.run()
         with fb1._connect('test.db') as c:
@@ -82,7 +83,7 @@ class TestLoading(unittest.TestCase):
 
     def test_loading_sas_file(self):
         fb.register(
-            ff5 = fb.load('ff5_ew_mine.sas7bdat'),
+            ff5=fb.load('ff5_ew_mine.sas7bdat'),
         )
         fb.run()
         with fb1._connect('test.db') as c:
@@ -90,7 +91,7 @@ class TestLoading(unittest.TestCase):
 
     def test_loading_stata_file(self):
         fb.register(
-            crime = fb.load('crime.dta'),
+            crime=fb.load('crime.dta'),
         )
         fb.run()
         with fb1._connect('test.db') as c:
@@ -102,7 +103,7 @@ class TestLoading(unittest.TestCase):
             return r
 
         fb.register(
-            foo = fb.load(({'a': i} for i in range(10)), fn=add3)
+            foo=fb.load(({'a': i} for i in range(10)), fn=add3)
         )
         fb.run()
         with fb1._connect('test.db') as c:
@@ -111,6 +112,7 @@ class TestLoading(unittest.TestCase):
     def tearDown(self):
         if os.path.isfile('test.db'):
             os.remove('test.db')
+
 
 class TestMap(unittest.TestCase):
     def setUp(self):
@@ -129,7 +131,7 @@ class TestMap(unittest.TestCase):
                 yield r
 
         fb.register(
-            orders1 = fb.map(add_yyyy_yyyymm, 'orders'),
+            orders1=fb.map(add_yyyy_yyyymm, 'orders'),
         )
         fb.run()
         with fb1._connect('test.db') as c:
@@ -156,8 +158,8 @@ class TestMap(unittest.TestCase):
             # you can either pass a function that returns
             # a dictionary (row) or  a list of dictionaries
             # or pass a generator that yields dictionaries
-            customers1 = fb.map(bigmarket(5), 'customers', by='Country'),
-            customers2 = fb.map(bigmarket1(5), 'customers', by='Country')
+            customers1=fb.map(bigmarket(5), 'customers', by='Country'),
+            customers2=fb.map(bigmarket1(5), 'customers', by='Country')
         )
         fb.run()
 
@@ -166,7 +168,7 @@ class TestMap(unittest.TestCase):
 
     def test_group_n(self):
         fb.register(
-            orders1 = fb.map(lambda rs: {'a': len(rs)}, 'orders', by=10)
+            orders1=fb.map(lambda rs: {'a': len(rs)}, 'orders', by=10)
         )
         fb.run()
         with fb1._connect('test.db') as c:
@@ -175,7 +177,7 @@ class TestMap(unittest.TestCase):
     # all of them at once
     def test_group_star(self):
         fb.register(
-            orders1 = fb.map(lambda rs: rs, 'orders', by=' * '),
+            orders1=fb.map(lambda rs: rs, 'orders', by=' * '),
         )
         fb.run()
         with fb1._connect('test.db') as c:
@@ -183,7 +185,7 @@ class TestMap(unittest.TestCase):
 
     def test_group_invalid(self):
         fb.register(
-            orders1 = fb.map(lambda rs: {'a': 10}, 'orders', by=10.0),
+            orders1=fb.map(lambda rs: {'a': 10}, 'orders', by=10.0),
         )
         _, undone = fb.run()
         self.assertEqual([x['output'] for x in undone], ['orders1'])
@@ -194,13 +196,12 @@ class TestMap(unittest.TestCase):
                 yield r
 
         fb.register(
-            orders1 = fb.map(filter10, 'orders')
+            orders1=fb.map(filter10, 'orders')
         )
         fb.run()
         with self.assertRaises(sqlite3.OperationalError):
             with fb1._connect('test.db') as c:
                 list(fet(c, 'orders1'))
-
 
     def test_return_none(self):
         def foo(r):
@@ -208,12 +209,11 @@ class TestMap(unittest.TestCase):
                 return r
 
         fb.register(
-            orders1 = fb.map(foo, 'orders'),
+            orders1=fb.map(foo, 'orders'),
         )
         fb.run()
         with fb1._connect('test.db') as c:
             self.assertEqual(len(list(fet(c, 'orders1'))), 54)
-
 
     def tearDown(self):
         remdb()
@@ -253,11 +253,10 @@ class TestMapErrornousInsertion(unittest.TestCase):
         fb.run()
         # orders1 is not created
         with self.assertRaises(sqlite3.OperationalError):
-         with fb1._connect('test.db') as c:
-            for r in fet(c, 'orders1'):
-                print(r)
-            list(fet(c, 'orders1'))
-
+            with fb1._connect('test.db') as c:
+                for r in fet(c, 'orders1'):
+                    print(r)
+                list(fet(c, 'orders1'))
 
     def test_insert_1col_added(self):
         def errornous1(rs):
@@ -283,7 +282,7 @@ class TestUnion(unittest.TestCase):
 
     def test_simple_union(self):
         fb.register(
-            orders = fb.load('orders.csv'),
+            orders=fb.load('orders.csv'),
             orders1=fb.map(lambda r: r, 'orders'),
             orders2=fb.union('orders, orders1'),
             # the following is also fine
@@ -312,15 +311,15 @@ class TestGraph(unittest.TestCase):
             yield rs[0]
 
         fb.register(
-            orders = fb.load('orders.csv', fn=add_yyyy),
-            customers = fb.load('customers.csv'),
+            orders=fb.load('orders.csv', fn=add_yyyy),
+            customers=fb.load('customers.csv'),
             # append customer's nationality
-            orders1 = fb.join(
+            orders1=fb.join(
                 ['orders', '*', 'customerid'],
                 ['customers', 'Country', 'customerid'],
             ),
             # yearly number of orders by country
-            orders2 = fb.map(count, 'orders1', by='yyyy, Country'),
+            orders2=fb.map(count, 'orders1', by='yyyy, Country'),
         )
         saved_jobs = fb1._JOBS
         fb.run()
@@ -370,20 +369,20 @@ class TestIntegratedProcess(unittest.TestCase):
             r['nmonth'] = 6
             try:
                 r['avg'] = round((r['norders'] + r['norders1'] + r['norders2'] +  \
-                                r['norders3'] + r['norders4'] + r['norders5']) / 6, 1)
+                                  r['norders3'] + r['norders4'] + r['norders5']) / 6, 1)
             except:
                 r['avg'] = ''
             yield r
 
         fb.register(
-            orders = fb.load('orders.csv'),
+            orders=fb.load('orders.csv'),
             # add month
-            orders1 = fb.map(add(yyyymm=lambda r: r['orderdate'][:7]), 'orders'),
+            orders1=fb.map(add(yyyymm=lambda r: r['orderdate'][:7]), 'orders'),
             # count the number of orders by month
-            orders2 = fb.map(fn=sumup, data='orders1', by='yyyymm'),
-            orders3 = fb.map(fn=cnt, data='orders2', by='*'),
+            orders2=fb.map(fn=sumup, data='orders1', by='yyyymm'),
+            orders3=fb.map(fn=cnt, data='orders2', by='*'),
             # want to compute past 6 months
-            orders4 = fb.join(
+            orders4=fb.join(
                 ['orders3', '*', 'cnt'],
                 ['orders3', 'norders as norders1', 'cnt + 1'],
                 ['orders3', 'norders as norders2', 'cnt + 2'],
@@ -392,7 +391,7 @@ class TestIntegratedProcess(unittest.TestCase):
                 ['orders3', 'norders as norders5', 'cnt + 5']
             ),
 
-            orders_avg_nmonth = fb.map(fn=orders_avg_nmonth, data='orders4'),
+            orders_avg_nmonth=fb.map(fn=orders_avg_nmonth, data='orders4'),
         )
 
         fb.run()
@@ -431,16 +430,16 @@ class TestParallel(unittest.TestCase):
                 yield rs1[0]
 
         fb.register(
-            orders = fb.load('orders.csv', fn=add_yyyy),
+            orders=fb.load('orders.csv', fn=add_yyyy),
             # you can enforce single-core-proc by passing parallel "False"
-            orders1 = fb.map(count, 'orders', by='yyyymm, shipperid'),
-            orders1s = fb.map(count, 'orders', by='yyyymm, shipperid', parallel=True),
+            orders1=fb.map(count, 'orders', by='yyyymm, shipperid'),
+            orders1s=fb.map(count, 'orders', by='yyyymm, shipperid', parallel=True),
             # part of workers do not have work to do, sort of a corner case
-            orders2 = fb.map(count1, 'orders', by='yyyymm, shipperid'),
-            orders2s = fb.map(count1, 'orders', by='yyyymm, shipperid', parallel=True),
+            orders2=fb.map(count1, 'orders', by='yyyymm, shipperid'),
+            orders2s=fb.map(count1, 'orders', by='yyyymm, shipperid', parallel=True),
             # one column should work as well
-            orders3 = fb.map(count, 'orders', by='yyyymm'),
-            orders3s = fb.map(count, 'orders', by='yyyymm', parallel=True),
+            orders3=fb.map(count, 'orders', by='yyyymm'),
+            orders3s=fb.map(count, 'orders', by='yyyymm', parallel=True),
         )
 
         fb.run()
@@ -460,20 +459,19 @@ class TestParallel(unittest.TestCase):
                 yield r
 
         fb.register(
-            customers = fb.load('customers.csv'),
-            customers1 = fb.map(first_name, 'customers'),
-            customers1s = fb.map(first_name, 'customers', parallel=4),
+            customers=fb.load('customers.csv'),
+            customers1=fb.map(first_name, 'customers'),
+            customers1s=fb.map(first_name, 'customers', parallel=4),
 
-            customers2 = fb.map(first_name1, 'customers'),
-            customers2s = fb.map(first_name1, 'customers', parallel=3),
+            customers2=fb.map(first_name1, 'customers'),
+            customers2s=fb.map(first_name1, 'customers', parallel=3),
 
-       )
+        )
         fb.run()
 
         with fb1._connect('test.db') as c:
             self.assertEqual(list(fet(c, 'customers1')), list(fet(c, 'customers1s')))
             self.assertEqual(list(fet(c, 'customers2')), list(fet(c, 'customers2s')))
-
 
     def tearDown(self):
         remdb()
@@ -483,8 +481,8 @@ class TestLogMsg(unittest.TestCase):
     def test_mute_log_messages(self):
         remdb()
         fb.register(
-            orders = fb.load('orders.csv'),
-            orders1 = fb.map(lambda r: r, 'orders'),
+            orders=fb.load('orders.csv'),
+            orders1=fb.map(lambda r: r, 'orders'),
         )
         self.assertEqual(fb1._CONFIG['msg'], True)
         # you can pass keyword args for configuration
@@ -500,7 +498,7 @@ class TestUnderscore(unittest.TestCase):
             c.insert([{'a': 10}], '_orders')
 
         fb.register(
-            _orders = fb.load('orders.csv'),
+            _orders=fb.load('orders.csv'),
         )
 
         fb.run()
@@ -517,10 +515,10 @@ class TestHelperTables(unittest.TestCase):
             return r
         initialize()
         fb.register(
-            orders = fb.load('orders.csv'),
-            orderdetails = fb.load('orderdetails.csv'),
+            orders=fb.load('orders.csv'),
+            orderdetails=fb.load('orderdetails.csv'),
 
-            orders1 = fb.map(stupid, 'orders', tables=[('orderdetails', lambda rs: [1 for r in rs])])
+            orders1=fb.map(stupid, 'orders', tables=[('orderdetails', lambda rs: [1 for r in rs])])
         )
         fb.run()
         with fb1._connect('test.db') as c:
@@ -537,10 +535,10 @@ class TestHelperTables(unittest.TestCase):
 
         initialize()
         fb.register(
-            orders = fb.load('orders.csv'),
-            products = fb.load('products.csv'),
-            orderdetails = fb.load('orderdetails.csv'),
-            orders1 = fb.map(stupid, 'orders', tables=[('orderdetails',  None), ('products', one)], parallel=True)
+            orders=fb.load('orders.csv'),
+            products=fb.load('products.csv'),
+            orderdetails=fb.load('orderdetails.csv'),
+            orders1=fb.map(stupid, 'orders', tables=[('orderdetails',  None), ('products', one)], parallel=True)
         )
         fb.run()
         with fb1._connect('test.db') as c:
@@ -551,14 +549,14 @@ class TestHelperTables(unittest.TestCase):
 class TestRun(unittest.TestCase):
     def test_refresh(self):
         fb.register(
-            orders = fb.load('orders.csv'),
-            products = fb.load('products.csv'),
+            orders=fb.load('orders.csv'),
+            products=fb.load('products.csv'),
         )
         fb.run()
 
         fb1._JOBS = {}
         fb.register(
-            orders = fb.load('products.csv')
+            orders=fb.load('products.csv')
         )
         fb.run(refresh='orders')
         with fb1._connect('test.db') as c:
@@ -569,11 +567,11 @@ class TestRun(unittest.TestCase):
             os.remove('orders_sample.csv')
 
         fb.register(
-            orders_sample = fb.load('orders.csv'),
+            orders_sample=fb.load('orders.csv'),
         )
         fb.run(export='orders_sample')
         fb.register(
-            foo = fb.load('orders_sample.csv'),
+            foo=fb.load('orders_sample.csv'),
         )
         fb.run()
         with fb1._connect('test.db') as c:
@@ -586,6 +584,7 @@ class TestLLVL(unittest.TestCase):
     def test_llvl1(self):
         # you can do much more complex joining jobs than this using llvl
         initialize()
+
         def join1(seq1, seq2):
             seq1 = groupby(seq1, key=lambda r: r['cust_id'])
             seq2 = groupby(seq2, key=lambda r: r['cust_id'])
@@ -598,7 +597,7 @@ class TestLLVL(unittest.TestCase):
                             yield r1
 
                 if not rs1:
-                   for r2 in rs2:
+                    for r2 in rs2:
                         yield {
                             'order_num': '',
                             'order_date': '',
@@ -612,9 +611,9 @@ class TestLLVL(unittest.TestCase):
                         yield r1
 
         fb.register(
-            tysql_Orders = fb.load('tysql_Orders.csv'),
-            tysql_Customers = fb.load('tysql_Customers.csv'),
-            tysql_Orders1 = fb.llvl(join1, [('tysql_Orders', 'cust_id'), ('tysql_Customers', 'cust_id')]),
+            tysql_Orders=fb.load('tysql_Orders.csv'),
+            tysql_Customers=fb.load('tysql_Customers.csv'),
+            tysql_Orders1=fb.llvl(join1, [('tysql_Orders', 'cust_id'), ('tysql_Customers', 'cust_id')]),
         )
 
         fb.run()
