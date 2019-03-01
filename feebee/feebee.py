@@ -361,7 +361,7 @@ def _execute(c, job):
             seq = c.fetch(f"select * from {job['inputs'][0]}",
                           _listify(job['by']))
             helper_tables = [fn(list(c.fetch(f'select * from {tbl}')))
-                             for tbl, fn in job['tables'].items()]
+                             for tbl, fn in job['tables']]
             seq1 = _applyfn(job['fn'], _tqdm(seq, tsize, job['by']),
                             helper_tables)
             c.insert(seq1, job['output'])
@@ -380,7 +380,7 @@ def _execute(c, job):
     elif cmd == 'llvl':
         c.insert(job['fn'](*(c.fetch(
             f"select * from {tbl} order by {','.join(_listify(cols))}")
-            for tbl, cols in job['tables'].items())),
+            for tbl, cols in job['tables'])),
             job['output'])
 
 
@@ -409,7 +409,7 @@ def _exec_parallel_map(c, job, max_workers, tsize):
     exe = Pool(len(dbfiles))
 
     helper_tables = [fn(list(c.fetch(f'select * from {tbl}')))
-                     for tbl, fn in job['tables'].items()]
+                     for tbl, fn in job['tables']]
 
     def _proc(dbfile, cut):
         query = f"""select * from {ttable}
@@ -518,17 +518,17 @@ def load(file=None, fn=None, delimiter=None, quotechar='"', encoding='utf-8'):
             'inputs': []}
 
 
-# tables: {'tname1': fn1, 'tname2': fn2}
+# tables: [('tname1', fn1), ('tname2', fn2)]
 # fn transforms a table
 def map(fn=None, data=None, by=None, parallel=False, tables=None):
     return {
         'cmd': 'map',
         'fn': fn,
-        'inputs': [data] + (list(tables) if tables else []),
+        'inputs': [data] + ([tbl for tbl, _ in tables] if tables else []),
         'by': by,
         'tables':
-            {tbl: (fn or (lambda x: x)) for tbl, fn in tables.items()}
-            if tables else {},
+            [(tbl, fn or (lambda x: x)) for tbl, fn in tables]
+            if tables else [],
         'parallel': parallel
     }
 
@@ -549,13 +549,13 @@ def union(inputs):
     }
 
 
-# data: {'tname1': 'col1, col2', 'tname2': 'col1'}
+# data: [('tname1', 'col1, col2'), ('tname2', 'col1')]
 # fetch tables ordered by cols
 def llvl(fn=None, data=None):
     return {
         'cmd': 'llvl',
         'fn': fn,
-        'inputs': list(data),
+        'inputs': [tbl for tbl, _ in data],
         'tables': data
     }
 

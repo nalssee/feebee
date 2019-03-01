@@ -520,7 +520,7 @@ class TestHelperTables(unittest.TestCase):
             orders = fb.load('orders.csv'),
             orderdetails = fb.load('orderdetails.csv'),
 
-            orders1 = fb.map(stupid, 'orders', tables={'orderdetails': lambda rs: [1 for r in rs]})
+            orders1 = fb.map(stupid, 'orders', tables=[('orderdetails', lambda rs: [1 for r in rs])])
         )
         fb.run()
         with fb1._connect('test.db') as c:
@@ -540,7 +540,7 @@ class TestHelperTables(unittest.TestCase):
             orders = fb.load('orders.csv'),
             products = fb.load('products.csv'),
             orderdetails = fb.load('orderdetails.csv'),
-            orders1 = fb.map(stupid, 'orders', tables={'orderdetails': None, 'products': one}, parallel=True)
+            orders1 = fb.map(stupid, 'orders', tables=[('orderdetails',  None), ('products', one)], parallel=True)
         )
         fb.run()
         with fb1._connect('test.db') as c:
@@ -614,7 +614,7 @@ class TestLLVL(unittest.TestCase):
         fb.register(
             tysql_Orders = fb.load('tysql_Orders.csv'),
             tysql_Customers = fb.load('tysql_Customers.csv'),
-            tysql_Orders1 = fb.llvl(join1, {'tysql_Orders': 'cust_id', 'tysql_Customers': 'cust_id'}),
+            tysql_Orders1 = fb.llvl(join1, [('tysql_Orders', 'cust_id'), ('tysql_Customers', 'cust_id')]),
         )
 
         fb.run()
