@@ -432,9 +432,10 @@ class TestEmAll(unittest.TestCase):
         rs2.sort(key=key1)
         rs1 = groupby(rs1, key1)
         rs2 = groupby(rs2, key1)
-
+        result = []
         for a, b in step(rs1, rs2):
-            print(a, b)
+            result.append((a[0]['a'] if a else None, b[0]['a'] if b else None))
+        self.assertEqual(result, [(-3, None), (None, 3), (10, 10), (12, 12), (None, 30)])
 
 
     def tearDown(self):

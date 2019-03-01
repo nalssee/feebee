@@ -619,9 +619,10 @@ class TestLLVL(unittest.TestCase):
 
         fb.run()
         with fb1._connect('test.db') as c:
+            result = []
             for r in fet(c, 'tysql_Orders1'):
-                print(r)
-
+                result.append(r['cust_id'])
+            self.assertEqual(result, [1000000001, 1000000001, 1000000002, 1000000003, 1000000004, 1000000005])
 
 
 # utils
