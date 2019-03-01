@@ -356,8 +356,8 @@ def _execute(c, job):
             logger.info(f"processing {job['cmd']}: {job['output']}")
             seq = c.fetch(f"select * from {job['inputs'][0]}",
                           _listify(job['by']))
-            helper_tables = [list(c.fetch(f'select * from {tbl}'))
-                             for tbl in job['inputs'][1:]]
+            helper_tables = [fn(list(c.fetch(f'select * from {tbl}')))
+                             for tbl, fn in job['tables'].items()]
             seq1 = _applyfn(job['fn'], _tqdm(seq, tsize, job['by']),
                             helper_tables)
             c.insert(seq1, job['output'])
@@ -398,8 +398,8 @@ def _exec_parallel_map(c, job, max_workers, tsize):
     bys = _listify(job['by']) if job['by'] else None
     exe = Pool(len(dbfiles))
 
-    helper_tables = [list(c.fetch(f'select * from {tbl}'))
-                     for tbl in job['inputs'][1:]]
+    helper_tables = [fn(list(c.fetch(f'select * from {tbl} order by _ROWID_')))
+                     for tbl, fn in job['tables'].items()]
 
     def _proc(dbfile, cut):
         query = f"""select * from {ttable}
@@ -508,12 +508,17 @@ def load(file=None, fn=None, delimiter=None, quotechar='"', encoding='utf-8'):
             'inputs': []}
 
 
-def map(fn=None, data=None, by=None, parallel=False, tables=[]):
+# tables: {'tname1': fn1, 'tname2': fn2}
+# fn transforms a table
+def map(fn=None, data=None, by=None, parallel=False, tables=None):
     return {
         'cmd': 'map',
         'fn': fn,
-        'inputs': [data] + _listify(tables),
+        'inputs': [data] + (list(tables) if tables else []),
         'by': by,
+        'tables':
+            {tbl: (fn or (lambda x: x)) for tbl, fn in tables.items()}
+            if tables else {},
         'parallel': parallel
     }
 
