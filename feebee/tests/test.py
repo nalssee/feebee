@@ -114,6 +114,44 @@ class TestLoading(unittest.TestCase):
             os.remove('test.db')
 
 
+class TestNone(unittest.TestCase):
+    def setUp(self):
+        initialize()
+        fb.register(
+            vendors=fb.load('tysql_Vendors.csv'),
+        )
+        fb.run()
+
+    def test_none(self):
+        def input_none(r):
+            if not r['vend_state']:
+                r['vend_state'] = None
+            return r
+
+        # inserting string 'None' doesn't actually make it None
+        def input_none1(r):
+            if not r['vend_state']:
+                r['vend_state'] = 'None'
+            return r
+
+        fb.register(
+            vendors1=fb.map(input_none, 'vendors'),
+            vendors2=fb.map(input_none1, 'vendors'),
+        )
+        fb.run()
+
+        with fb1._connect('test.db') as c:
+            self.assertEqual(len([r for r in fet(c, 'vendors') if r['vend_state'] == '  ']), 1)
+            self.assertEqual(len([r for r in fet(c, 'vendors') if r['vend_state'] is '']), 1)
+            # '' is falsy but '  ' is not
+            self.assertEqual(len([r for r in fet(c, 'vendors1') if r['vend_state'] is None]), 1)
+            self.assertEqual(len([r for r in fet(c, 'vendors2') if r['vend_state'] is None]), 0)
+
+    def tearDown(self):
+        if os.path.isfile('test.db'):
+            os.remove('test.db')
+
+
 class TestMap(unittest.TestCase):
     def setUp(self):
         initialize()
@@ -613,7 +651,8 @@ class TestLLVL(unittest.TestCase):
         fb.register(
             tysql_Orders=fb.load('tysql_Orders.csv'),
             tysql_Customers=fb.load('tysql_Customers.csv'),
-            tysql_Orders1=fb.llvl(join1, [('tysql_Orders', 'cust_id'), ('tysql_Customers', 'cust_id')]),
+            tysql_Orders1=fb.llvl(join1, [('tysql_Orders', 'cust_id'),
+                                          ('tysql_Customers', 'cust_id')]),
         )
 
         fb.run()
@@ -622,6 +661,47 @@ class TestLLVL(unittest.TestCase):
             for r in fet(c, 'tysql_Orders1'):
                 result.append(r['cust_id'])
             self.assertEqual(result, [1000000001, 1000000001, 1000000002, 1000000003, 1000000004, 1000000005])
+
+    def test_llvl2(self):
+        # you can do much more complex joining jobs than this using llvl
+        initialize()
+
+        def join1(seq1, seq2):
+            seq1 = groupby(seq1, key=lambda r: r['cust_state'])
+            seq2 = groupby(seq2, key=lambda r: r['vend_state'])
+
+            for rs1, rs2 in step(seq1, seq2):
+
+                if rs1 and rs2:
+                    for r1 in rs1:
+                        for r2 in rs2:
+                            r1['vend_name'] = r2['vend_name']
+                            yield r1
+
+                if not rs1:
+                    # do nothing
+                    pass
+
+                if not rs2:
+                    for r1 in rs1:
+                        r1['vend_name'] = ''
+                        yield r1
+
+        fb.register(
+            tysql_Customers=fb.load('tysql_Customers.csv'),
+            tysql_Vendors=fb.load('tysql_Vendors.csv'),
+            tysql_Customers1=fb.llvl(join1, [('tysql_Customers', 'cust_state'),
+                                             ('tysql_Vendors', 'vend_state')]),
+
+        )
+
+        fb.run()
+
+        with fb1._connect('test.db') as c:
+            vendors = []
+            for r in fet(c, 'tysql_Customers1'):
+                vendors.append(r['vend_name'])
+            self.assertEqual(vendors, ['', '', '', 'Bears R Us', 'Bear Emporium'])
 
 
 # utils

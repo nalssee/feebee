@@ -379,9 +379,9 @@ def _execute(c, job):
         c.insert(gen(), job['output'])
 
     elif cmd == 'llvl':
-        c.insert(job['fn'](*(c.fetch(
+        c.insert(tqdm(job['fn'](*(c.fetch(
             f"select * from {tbl} order by {','.join(listify(cols))}")
-            for tbl, cols in job['tables'])),
+            for tbl, cols in job['tables']))),
             job['output'])
 
 

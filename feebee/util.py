@@ -59,24 +59,38 @@ def lag(cols, datecol, ns, add1fn=None, max_missings=10_000):
     return fn
 
 
+# You should be very careful if you want to update this generator
 def step(*grouped_seqs):
-    keys = [None] * len(grouped_seqs)
-    vals = [None] * len(grouped_seqs)
+    Empty = object()
+    NoMore = object()
+    EmptyVal = []
+
+    keys = [Empty] * len(grouped_seqs)
+    vals = [EmptyVal] * len(grouped_seqs)
 
     def update(i, gs):
         try:
             k, rs = next(gs)
-            keys[i] = k
+            keys[i] = k or Empty
             vals[i] = list(rs)
         except StopIteration:
-            keys[i] = None
-            vals[i] = None
+            keys[i] = NoMore
+            vals[i] = EmptyVal
 
     for i, gs in enumerate(grouped_seqs):
         update(i, gs)
 
-    while not all(k is None for k in keys):
-        minkey = min(k for k in keys if k)
+    while not all(k is NoMore for k in keys):
+        try:
+            minkey = min(k for k in keys if k is not NoMore)
+        except TypeError as e:
+            # remove empty ones
+            if Empty in keys:
+                minkey = Empty
+            else:
+                # 'abc' < 3
+                raise e
+
         result1 = []
         for i, (truth, k, v, g) in\
                 enumerate(zip((k == minkey for k in keys), keys,
@@ -85,7 +99,7 @@ def step(*grouped_seqs):
                 update(i, g)
                 result1.append(v)
             else:
-                result1.append(None)
+                result1.append(EmptyVal)
         yield result1
 
 
