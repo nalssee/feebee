@@ -6,4 +6,4 @@ __pycache__/
 feebee.egg-info/
 dist/
 build/
-doc/_build/
+doc/_build/*
