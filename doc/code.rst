@@ -3,11 +3,12 @@ feebee
 
 .. automodule:: feebee.feebee
    :members:
+   :undoc-members:
 
-.. autofunction:: feebee.map
 
 util 
 ===============================
 .. automodule:: feebee.util
    :members:
+   :undoc-members:
  
