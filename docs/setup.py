@@ -11,6 +11,7 @@ setup(name='feebee',
       # Install statsmodels manually using conda install
       # TODO: Not easy to install numpy and stuff without conda
       install_requires=[
+          'openpyxl>=2.5.12',
           'sas7bdat>=2.0.7',
           'psutil>=5.4.3',
           'graphviz>=0.8.2',
@@ -19,7 +20,6 @@ setup(name='feebee',
           'more-itertools>=5.0.0',
           'coloredlogs>=10.0',
           'tqdm>=4.29.1',
-          'openpyxl>=2.5.12',
           'pandas',
         ],
       zip_safe=False)
