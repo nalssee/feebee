@@ -1,0 +1,465 @@
+
+
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>feebee &mdash; feebee 0.5 documentation</title>
+  
+
+  
+  
+  
+  
+
+  
+  <script type="text/javascript" src="_static/js/modernizr.min.js"></script>
+  
+    
+      <script type="text/javascript" id="documentation_options" data-url_root="./" src="_static/documentation_options.js"></script>
+        <script type="text/javascript" src="_static/jquery.js"></script>
+        <script type="text/javascript" src="_static/underscore.js"></script>
+        <script type="text/javascript" src="_static/doctools.js"></script>
+        <script type="text/javascript" src="_static/language_data.js"></script>
+    
+    <script type="text/javascript" src="_static/js/theme.js"></script>
+
+    
+
+  
+  <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+  <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="prev" title="Tutorial" href="tutorial.html" /> 
+</head>
+
+<body class="wy-body-for-nav">
+
+   
+  <div class="wy-grid-for-nav">
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+          
+
+          
+            <a href="index.html" class="icon icon-home"> feebee
+          
+
+          
+          </a>
+
+          
+            
+            
+          
+
+          
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+
+          
+        </div>
+
+        <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+          
+            
+            
+              
+            
+            
+              <p class="caption"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="tutorial.html">Tutorial</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">feebee</a></li>
+<li class="toctree-l1"><a class="reference internal" href="#module-feebee.util">util</a></li>
+</ul>
+
+            
+          
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" aria-label="top navigation">
+        
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">feebee</a>
+        
+      </nav>
+
+
+      <div class="wy-nav-content">
+        
+        <div class="rst-content">
+        
+          
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div role="navigation" aria-label="breadcrumbs navigation">
+
+  <ul class="wy-breadcrumbs">
+    
+      <li><a href="index.html">Docs</a> &raquo;</li>
+        
+      <li>feebee</li>
+    
+    
+      <li class="wy-breadcrumbs-aside">
+        
+            
+            <a href="_sources/code.rst.txt" rel="nofollow"> View page source</a>
+          
+        
+      </li>
+    
+  </ul>
+
+  
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+            
+  <div class="section" id="module-feebee.feebee">
+<span id="feebee"></span><h1>feebee<a class="headerlink" href="#module-feebee.feebee" title="Permalink to this headline">¶</a></h1>
+<dl class="exception">
+<dt id="feebee.feebee.FeebeeError">
+<em class="property">exception </em><code class="descclassname">feebee.feebee.</code><code class="descname">FeebeeError</code><a class="headerlink" href="#feebee.feebee.FeebeeError" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="exception">
+<dt id="feebee.feebee.InvalidColumns">
+<em class="property">exception </em><code class="descclassname">feebee.feebee.</code><code class="descname">InvalidColumns</code><a class="headerlink" href="#feebee.feebee.InvalidColumns" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="exception">
+<dt id="feebee.feebee.InvalidGroup">
+<em class="property">exception </em><code class="descclassname">feebee.feebee.</code><code class="descname">InvalidGroup</code><a class="headerlink" href="#feebee.feebee.InvalidGroup" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="exception">
+<dt id="feebee.feebee.NoRowToInsert">
+<em class="property">exception </em><code class="descclassname">feebee.feebee.</code><code class="descname">NoRowToInsert</code><a class="headerlink" href="#feebee.feebee.NoRowToInsert" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="exception">
+<dt id="feebee.feebee.NoRowToWrite">
+<em class="property">exception </em><code class="descclassname">feebee.feebee.</code><code class="descname">NoRowToWrite</code><a class="headerlink" href="#feebee.feebee.NoRowToWrite" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="exception">
+<dt id="feebee.feebee.ReservedKeyword">
+<em class="property">exception </em><code class="descclassname">feebee.feebee.</code><code class="descname">ReservedKeyword</code><a class="headerlink" href="#feebee.feebee.ReservedKeyword" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="exception">
+<dt id="feebee.feebee.TableDuplication">
+<em class="property">exception </em><code class="descclassname">feebee.feebee.</code><code class="descname">TableDuplication</code><a class="headerlink" href="#feebee.feebee.TableDuplication" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="exception">
+<dt id="feebee.feebee.UnknownConfig">
+<em class="property">exception </em><code class="descclassname">feebee.feebee.</code><code class="descname">UnknownConfig</code><a class="headerlink" href="#feebee.feebee.UnknownConfig" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="function">
+<dt id="feebee.feebee.join">
+<code class="descclassname">feebee.feebee.</code><code class="descname">join</code><span class="sig-paren">(</span><em>*args</em><span class="sig-paren">)</span><a class="headerlink" href="#feebee.feebee.join" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="function">
+<dt id="feebee.feebee.llvl">
+<code class="descclassname">feebee.feebee.</code><code class="descname">llvl</code><span class="sig-paren">(</span><em>fn=None</em>, <em>data=None</em><span class="sig-paren">)</span><a class="headerlink" href="#feebee.feebee.llvl" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="function">
+<dt id="feebee.feebee.load">
+<code class="descclassname">feebee.feebee.</code><code class="descname">load</code><span class="sig-paren">(</span><em>file=None</em>, <em>fn=None</em>, <em>delimiter=None</em>, <em>quotechar='&quot;'</em>, <em>encoding='utf-8'</em><span class="sig-paren">)</span><a class="headerlink" href="#feebee.feebee.load" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="function">
+<dt id="feebee.feebee.map">
+<code class="descclassname">feebee.feebee.</code><code class="descname">map</code><span class="sig-paren">(</span><em>fn=None</em>, <em>data=None</em>, <em>by=None</em>, <em>parallel=False</em>, <em>tables=None</em><span class="sig-paren">)</span><a class="headerlink" href="#feebee.feebee.map" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="function">
+<dt id="feebee.feebee.register">
+<code class="descclassname">feebee.feebee.</code><code class="descname">register</code><span class="sig-paren">(</span><em>**kwargs</em><span class="sig-paren">)</span><a class="headerlink" href="#feebee.feebee.register" title="Permalink to this definition">¶</a></dt>
+<dd><p>Register processes as keyword args.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">feebee</span> <span class="kn">as</span> <span class="nn">fb</span>
+
+<span class="n">fb</span><span class="o">.</span><span class="n">register</span><span class="p">(</span>
+    <span class="n">table_name</span> <span class="o">=</span> <span class="n">fb</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="s1">&#39;sample.csv&#39;</span><span class="p">),</span>
+    <span class="n">table_name1</span> <span class="o">=</span> <span class="n">fb</span><span class="o">.</span><span class="n">map</span><span class="p">(</span><span class="n">simple_process</span><span class="p">,</span> <span class="s1">&#39;table_name&#39;</span><span class="p">),</span>
+<span class="p">)</span>
+
+<span class="n">fb</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
+</pre></div>
+</div>
+<p>If you want to refresh the table every time you run the script,
+prefix it with underscore like _table_name, then you don’t have to
+delete it to recreate it.</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="feebee.feebee.run">
+<code class="descclassname">feebee.feebee.</code><code class="descname">run</code><span class="sig-paren">(</span><em>**kwargs</em><span class="sig-paren">)</span><a class="headerlink" href="#feebee.feebee.run" title="Permalink to this definition">¶</a></dt>
+<dd><p>Run registered processes, only those that are not in the database and
+also that depend on those missing processes.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>ws</strong> (<em>path as str</em>) – working space, the default is where the script is.</li>
+<li><strong>max_workers</strong> (<em>int</em>) – maxinum workers for parallel work. The default is the
+number of physical cores of your CPU.</li>
+<li><strong>locale</strong> – The default is en_US.UTF-8
+(English_United States.1252 for Windows)</li>
+<li><strong>msg</strong> – You may not want visual noises in the terminal.</li>
+<li><strong>refresh</strong> (<em>comma separated string of table names</em>) – <p>You may want to rerun the script over and over again,
+changing the code a bit. It could be tedious to delete the table
+everytime in those circumstances.</p>
+<p>Pass table names in string, for example ‘table1, table2’.</p>
+</li>
+<li><strong>export</strong> (<em>comma separated string of table names</em>) – Export tables in csv. for example ‘table1, table2’
+Those CSVs will be in the workspace as table1.csv, table2.csv.</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">Actually returns something for testing purposes,
+but not relavant.</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="feebee.feebee.union">
+<code class="descclassname">feebee.feebee.</code><code class="descname">union</code><span class="sig-paren">(</span><em>inputs</em><span class="sig-paren">)</span><a class="headerlink" href="#feebee.feebee.union" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</div>
+<div class="section" id="module-feebee.util">
+<span id="util"></span><h1>util<a class="headerlink" href="#module-feebee.util" title="Permalink to this headline">¶</a></h1>
+<dl class="function">
+<dt id="feebee.util.add_date">
+<code class="descclassname">feebee.util.</code><code class="descname">add_date</code><span class="sig-paren">(</span><em>date</em>, <em>n</em><span class="sig-paren">)</span><a class="headerlink" href="#feebee.util.add_date" title="Permalink to this definition">¶</a></dt>
+<dd><p>n means days for “%Y-%m-%d”, months for “%Y-%m”. Supports only 2 fmt.</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="feebee.util.allnum">
+<code class="descclassname">feebee.util.</code><code class="descname">allnum</code><span class="sig-paren">(</span><em>rs</em>, <em>cols</em><span class="sig-paren">)</span><a class="headerlink" href="#feebee.util.allnum" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns a list of rows that all of columns are numeric.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>rs</strong> (<em>a list of rows</em>) – [r1, r2, …]</li>
+<li><strong>cols</strong> (<em>comma separated string</em>) – ‘col1, col2’</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">a list of rows</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="feebee.util.avg">
+<code class="descclassname">feebee.util.</code><code class="descname">avg</code><span class="sig-paren">(</span><em>rs</em>, <em>col</em>, <em>wcol=None</em>, <em>ndigits=None</em><span class="sig-paren">)</span><a class="headerlink" href="#feebee.util.avg" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="function">
+<dt id="feebee.util.chunk">
+<code class="descclassname">feebee.util.</code><code class="descname">chunk</code><span class="sig-paren">(</span><em>rs</em>, <em>n</em>, <em>column=None</em><span class="sig-paren">)</span><a class="headerlink" href="#feebee.util.chunk" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns a list of rows in chunks</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>rs</strong> – a list of rows</li>
+<li><strong>n</strong> – <ul>
+<li>int =&gt; returns 3 rows about the same size</li>
+<li>list of ints, [0.3, 0.4, 0.3] =&gt; returns 3 rows of 30%, 40$, 30%</li>
+<li>list of nums, [100, 500, 100] =&gt; returns 4 rows with break points        100, 500, 1000, but you must pass the column name        for the break points like</li>
+</ul>
+<p>chunk(rs, [100, 500, 100], ‘col’)</p>
+</li>
+<li><strong>column</strong> – column name for break points</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">a list of rows</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="feebee.util.getX">
+<code class="descclassname">feebee.util.</code><code class="descname">getX</code><span class="sig-paren">(</span><em>rs</em>, <em>cols</em>, <em>constant=False</em><span class="sig-paren">)</span><a class="headerlink" href="#feebee.util.getX" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="function">
+<dt id="feebee.util.gety">
+<code class="descclassname">feebee.util.</code><code class="descname">gety</code><span class="sig-paren">(</span><em>rs</em>, <em>col</em><span class="sig-paren">)</span><a class="headerlink" href="#feebee.util.gety" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="function">
+<dt id="feebee.util.group">
+<code class="descclassname">feebee.util.</code><code class="descname">group</code><span class="sig-paren">(</span><em>rs</em>, <em>key</em><span class="sig-paren">)</span><a class="headerlink" href="#feebee.util.group" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="function">
+<dt id="feebee.util.isnum">
+<code class="descclassname">feebee.util.</code><code class="descname">isnum</code><span class="sig-paren">(</span><em>*xs</em><span class="sig-paren">)</span><a class="headerlink" href="#feebee.util.isnum" title="Permalink to this definition">¶</a></dt>
+<dd><p>Tests if all of xs are numeric</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><strong>xs</strong> – vals of whatever</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body">True or False</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="feebee.util.lag">
+<code class="descclassname">feebee.util.</code><code class="descname">lag</code><span class="sig-paren">(</span><em>cols</em>, <em>datecol</em>, <em>ns</em>, <em>add1fn=None</em>, <em>max_missings=10000</em><span class="sig-paren">)</span><a class="headerlink" href="#feebee.util.lag" title="Permalink to this definition">¶</a></dt>
+<dd><p>create columns for lags and leads, ex) col_1, col_2n</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="feebee.util.listify">
+<code class="descclassname">feebee.util.</code><code class="descname">listify</code><span class="sig-paren">(</span><em>x</em><span class="sig-paren">)</span><a class="headerlink" href="#feebee.util.listify" title="Permalink to this definition">¶</a></dt>
+<dd><p>Attempt to turn it into a list if possible
+if not return as is</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="feebee.util.overlap">
+<code class="descclassname">feebee.util.</code><code class="descname">overlap</code><span class="sig-paren">(</span><em>rs</em>, <em>size</em>, <em>step=1</em>, <em>key=None</em><span class="sig-paren">)</span><a class="headerlink" href="#feebee.util.overlap" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="function">
+<dt id="feebee.util.read_date">
+<code class="descclassname">feebee.util.</code><code class="descname">read_date</code><span class="sig-paren">(</span><em>date</em><span class="sig-paren">)</span><a class="headerlink" href="#feebee.util.read_date" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="function">
+<dt id="feebee.util.readxl">
+<code class="descclassname">feebee.util.</code><code class="descname">readxl</code><span class="sig-paren">(</span><em>fname</em>, <em>sheets=None</em>, <em>encoding='utf-8'</em>, <em>delimiter=None</em>, <em>quotechar='&quot;'</em>, <em>newline='\n'</em><span class="sig-paren">)</span><a class="headerlink" href="#feebee.util.readxl" title="Permalink to this definition">¶</a></dt>
+<dd><p>Reads excel like files and yields a list of values</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="feebee.util.set_default">
+<code class="descclassname">feebee.util.</code><code class="descname">set_default</code><span class="sig-paren">(</span><em>rs</em>, <em>cols</em>, <em>val=''</em><span class="sig-paren">)</span><a class="headerlink" href="#feebee.util.set_default" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="function">
+<dt id="feebee.util.stars">
+<code class="descclassname">feebee.util.</code><code class="descname">stars</code><span class="sig-paren">(</span><em>pval</em><span class="sig-paren">)</span><a class="headerlink" href="#feebee.util.stars" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="function">
+<dt id="feebee.util.step">
+<code class="descclassname">feebee.util.</code><code class="descname">step</code><span class="sig-paren">(</span><em>*grouped_seqs</em><span class="sig-paren">)</span><a class="headerlink" href="#feebee.util.step" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="function">
+<dt id="feebee.util.where">
+<code class="descclassname">feebee.util.</code><code class="descname">where</code><span class="sig-paren">(</span><em>pred</em>, <em>fn=None</em><span class="sig-paren">)</span><a class="headerlink" href="#feebee.util.where" title="Permalink to this definition">¶</a></dt>
+<dd><p>Filter with pred before you apply fn to a list of rows.
+if fn is not given, simply filter with pred</p>
+</dd></dl>
+
+</div>
+
+
+           </div>
+           
+          </div>
+          <footer>
+  
+    <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
+      
+      
+        <a href="tutorial.html" class="btn btn-neutral float-left" title="Tutorial" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left"></span> Previous</a>
+      
+    </div>
+  
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &copy; Copyright 2019, nalssee
+
+    </p>
+  </div>
+  Built with <a href="http://sphinx-doc.org/">Sphinx</a> using a <a href="https://github.com/rtfd/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>. 
+
+</footer>
+
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script>
+
+  
+  
+    
+   
+
+</body>
+</html>
