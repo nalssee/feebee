@@ -7,3 +7,5 @@ feebee.egg-info/
 dist/
 build/
 doc/_build/
+doc/_static/
+doc/_templates/

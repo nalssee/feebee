@@ -562,6 +562,24 @@ def llvl(fn=None, data=None):
 
 
 def register(**kwargs):
+    """Register processes as keyword args.
+
+    .. highlight:: python
+    .. code-block:: python
+
+        import feebee as fb
+
+        fb.register(
+            table_name = fb.load('sample.csv'),
+            table_name1 = fb.map(simple_process, 'table_name'),
+        )
+
+        fb.run()
+
+    If you want to refresh the table every time you run the script,
+    prefix it with underscore like _table_name, then you don't have to
+    delete it to recreate it.
+    """
     for k, _ in kwargs.items():
         if _JOBS.get(k, False):
             raise TableDuplication(k)
@@ -569,6 +587,29 @@ def register(**kwargs):
 
 
 def run(**kwargs):
+    """Run registered processes, only those that are not in the database and
+    also that depend on those missing processes.
+
+    :param ws: working space, the default is where the script is.
+    :type ws: path as str
+    :param max_workers: maxinum workers for parallel work. The default is the
+        number of physical cores of your CPU.
+    :type max_workers: int
+    :param locale: The default is en_US.UTF-8
+        (English_United States.1252 for Windows)
+    :param msg: You may not want visual noises in the terminal.
+    :param refresh: You may want to rerun the script over and over again,
+        changing the code a bit. It could be tedious to delete the table
+        everytime in those circumstances.
+
+        Pass table names in string, for example 'table1, table2'.
+    :type refresh: comma separated string of table names
+    :param export: Export tables in csv. for example 'table1, table2'
+        Those CSVs will be in the workspace as table1.csv, table2.csv.
+    :type export: comma separated string of table names
+    :returns: Actually returns something for testing purposes,
+        but not relavant.
+    """
     global _CONFIG
     try:
         default_configs = {k: v for k, v in _CONFIG.items()}

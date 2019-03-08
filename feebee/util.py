@@ -163,12 +163,19 @@ def set_default(rs, cols, val=''):
 
 
 def chunk(rs, n, column=None):
-    """
-    Usage:
-        |  chunk(rs, 3) => returns 3 rows about the same size
-        |  chunk(rs, [0.3, 0.4, 0.3]) => returns 3 rows of 30%, 40%, 30%
-        |  chunk(rs, [100, 500, 1000], 'col')
-        |      => returns 4 rows with break points 100, 500, 1000 of 'col'
+    """Returns a list of rows in chunks
+
+    :param rs: a list of rows
+    :param n:
+        - int => returns 3 rows about the same size
+        - list of ints, [0.3, 0.4, 0.3] => returns 3 rows of 30%, 40$, 30%
+        - list of nums, [100, 500, 100] => returns 4 rows with break points\
+        100, 500, 1000, but you must pass the column name\
+        for the break points like
+
+        chunk(rs, [100, 500, 100], 'col')
+    :param column: column name for break points
+    :returns: a list of rows
     """
     size = len(rs)
     if isinstance(n, int):
@@ -204,7 +211,10 @@ def chunk(rs, n, column=None):
 
 
 def isnum(*xs):
-    """ Tests if x is numeric
+    """ Tests if all of xs are numeric
+
+    :param xs: vals of whatever
+    :returns: True or False
     """
     try:
         for x in xs:
@@ -215,6 +225,14 @@ def isnum(*xs):
 
 
 def allnum(rs, cols):
+    """Returns a list of rows that all of columns are numeric.
+
+    :param rs: [r1, r2, ...]
+    :type rs: a list of rows
+    :param cols: 'col1, col2'
+    :type cols: comma separated string
+    :returns: a list of rows
+    """
     cols = listify(cols)
     return [r for r in rs if all(isnum(r[c]) for c in cols)]
 
