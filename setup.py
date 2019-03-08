@@ -20,5 +20,6 @@ setup(name='feebee',
           'coloredlogs>=10.0',
           'tqdm>=4.29.1',
           'openpyxl>=2.5.12',
-          'pandas',          ],
+          'pandas',
+        ],
       zip_safe=False)
