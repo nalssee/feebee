@@ -19,6 +19,6 @@ setup(name='feebee',
           'more-itertools>=5.0.0',
           'coloredlogs>=10.0',
           'tqdm>=4.29.1',
-          'pandas',
-          ],
+          'openpyxl>=2.5.12',
+          'pandas',          ],
       zip_safe=False)
