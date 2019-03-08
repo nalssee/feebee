@@ -20,6 +20,7 @@ setup(name='feebee',
           'more-itertools>=5.0.0',
           'coloredlogs>=10.0',
           'tqdm>=4.29.1',
+          'ciso8601>=2.1.1',
           'pandas',
         ],
       zip_safe=False)
