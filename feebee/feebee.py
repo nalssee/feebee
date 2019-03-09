@@ -575,10 +575,6 @@ def register(**kwargs):
         )
 
         fb.run()
-
-    If you want to refresh the table every time you run the script,
-    prefix it with underscore like _table_name, then you don't have to
-    delete it to recreate it.
     """
     for k, _ in kwargs.items():
         if _JOBS.get(k, False):
@@ -707,9 +703,7 @@ def _run():
         except Exception:
             pass
 
-        # delete tables that start with underscore
-        c.drop([job['output']
-               for job in jobs if job['output'].startswith('_')])
+        # delete tables in 'refresh'
         if _CONFIG['refresh']:
             c.drop(listify(_CONFIG['refresh']))
 

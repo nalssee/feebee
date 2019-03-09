@@ -529,23 +529,6 @@ class TestLogMsg(unittest.TestCase):
         remdb()
 
 
-class TestUnderscore(unittest.TestCase):
-    def test_if_tables_starting_with_underscore(self):
-        remdb()
-        with fb1._connect('test.db') as c:
-            c.insert([{'a': 10}], '_orders')
-
-        fb.register(
-            _orders=fb.load('orders.csv'),
-        )
-
-        fb.run()
-
-        with fb1._connect('test.db') as c:
-            # _orders must be updated
-            self.assertGreater(len(fet(c, '_orders')), 1)
-
-
 class TestHelperTables(unittest.TestCase):
     def test_helper_tables(self):
         def stupid(r, table):
