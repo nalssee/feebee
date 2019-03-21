@@ -263,7 +263,7 @@ def listify(x):
 
 
 def readxl(fname, sheets=None, encoding='utf-8', delimiter=None,
-           quotechar='"', newline='\n'):
+           quotechar='"', newline='\n', by_sheet=False):
     """ Reads excel like files and yields a list of values
     """
     # locale is set in fb.run()
@@ -290,9 +290,15 @@ def readxl(fname, sheets=None, encoding='utf-8', delimiter=None,
         # all sheets
         if sheets == ['*']:
             sheets = workbook.sheetnames
-        for sheet in sheets:
-            for row in workbook[sheet].iter_rows():
-                yield [c.value for c in row]
+            
+        if by_sheet:
+            for sheet in sheets:
+                lines = ([c.value for c in r] for r in workbook[sheet].iter_rows())
+                yield (sheet, lines)
+        else:
+            for sheet in sheets:
+                for row in workbook[sheet].iter_rows():
+                    yield [c.value for c in row]
 
 
 # implicit ordering

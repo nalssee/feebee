@@ -256,6 +256,17 @@ class TestEmAll(unittest.TestCase):
             rs = fet(c, 'mdata')
             self.assertEqual(len(rs), 213240)
 
+    def test_readxl2(self):
+        for sheet, rs in readxl('foreign.xlsx', sheets='*', by_sheet=True):
+            if sheet == 'tvol':
+                for _ in range(14):
+                    next(rs)
+                self.assertEqual(next(rs)[1], 3810614)
+            elif sheet == 'size':
+                for _ in range(17):
+                    next(rs)
+                self.assertEqual(next(rs)[1], 13290693)
+ 
     def test_listify(self):
         self.assertEqual(listify('a, b, c'), ['a', 'b', 'c'])
         # return as is
