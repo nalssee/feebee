@@ -379,10 +379,15 @@ def _execute(c, job):
         c.insert(gen(), job['output'])
 
     elif cmd == 'llvl':
-        c.insert(tqdm(job['fn'](*(c.fetch(
-            f"select * from {tbl} order by {','.join(listify(cols))}")
-            for tbl, cols in job['tables']))),
-            job['output'])
+        sqls = []
+        for tbl, cols in job['tables']:
+            if cols:
+                sqls.append(f"""select * from {tbl}
+                                order by {','.join(listify(cols))}""")
+            else:
+                sqls.append(f"select * from {tbl}")
+        c.insert(tqdm(job['fn'](*(c.fetch(sql) for sql in sqls))),
+                 job['output'])
 
 
 def _line_count(fname, encoding, newline):

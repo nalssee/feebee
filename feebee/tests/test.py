@@ -11,7 +11,7 @@ sys.path.append(PYPATH)
 import feebee as fb
 # only for testing
 import feebee.feebee as fb1
-from feebee.util import step
+from feebee.util import step, listify
 
 # customers.csv
 # CustomerID,CustomerName,ContactName,Address,City,PostalCode,Country
@@ -685,6 +685,26 @@ class TestLLVL(unittest.TestCase):
             for r in fet(c, 'tysql_Customers1'):
                 vendors.append(r['vend_name'])
             self.assertEqual(vendors, ['', '', '', 'Bears R Us', 'Bear Emporium'])
+
+    # no order cols
+    def test_llvl3(self):
+        def firstN(n):
+            def fn(seq):
+                for _ in range(n):
+                    yield next(seq)
+            return fn
+
+        initialize()
+        fb.register(
+            products=fb.load('products.csv'),
+            first3=fb.llvl(firstN(3), [('products', '')]),
+            first5=fb.llvl(firstN(5), [('products', None)]),
+        )
+        fb.run()
+
+        with fb1._connect('test.db') as c:
+            self.assertEqual(len(fet(c, 'first3')), 3)
+            self.assertEqual(len(fet(c, 'first5')), 5)
 
 
 # utils
