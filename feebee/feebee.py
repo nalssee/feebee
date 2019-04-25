@@ -19,6 +19,7 @@ from more_itertools import spy, chunked
 from pathos.multiprocessing import ProcessingPool as Pool
 from tqdm import tqdm
 from shutil import copyfile
+from openpyxl import Workbook
 
 from .util import listify, _build_keyfn
 
@@ -281,19 +282,34 @@ class _Connection:
         for ind_tname in ind_tnames:
             self._cursor.execute(f"drop index {ind_tname}")
 
+
     def export(self, tables):
         for table in listify(tables):
-            with open(os.path.join(_CONFIG['ws'], table + '.csv'), 'w',
-                      encoding='utf-8', newline='') as f:
+            table, ext = os.path.splitext(table)
+            if ext.lower() == '.xlsx':
                 rs = self.fetch(f'select * from {table}')
+                book = Workbook()
+                sheet = book.active 
                 r0, rs = spy(rs)
-                if r0 == []:
-                    raise NoRowToWrite
-                fieldnames = list(r0[0])
-                writer = csv.DictWriter(f, fieldnames=fieldnames)
-                writer.writeheader()
+                header = list(r0[0])
+                sheet.append(header)
                 for r in rs:
-                    writer.writerow(r)
+                    sheet.append(list(r.values()))
+                book.save(f'{table}.xlsx')
+
+            else:
+                with open(os.path.join(_CONFIG['ws'], table + '.csv'), 'w',
+                        encoding='utf-8', newline='') as f:
+                    rs = self.fetch(f'select * from {table}')
+                    r0, rs = spy(rs)
+                    if r0 == []:
+                        raise NoRowToWrite
+                    fieldnames = list(r0[0])
+                    writer = csv.DictWriter(f, fieldnames=fieldnames)
+                    writer.writeheader()
+                    for r in rs:
+                        writer.writerow(r)
+                
 
     def _cols(self, query):
         return [c[0] for c in self._cursor.execute(query).description]

@@ -584,6 +584,7 @@ class TestRun(unittest.TestCase):
             self.assertEqual(len(fet(c, 'orders')), len(fet(c, 'products')))
 
     def test_export(self):
+        initialize()
         if os.path.exists('orders_sample.csv'):
             os.remove('orders_sample.csv')
 
@@ -591,14 +592,38 @@ class TestRun(unittest.TestCase):
             orders_sample=fb.load('orders.csv'),
         )
         fb.run(export='orders_sample')
+
         fb.register(
             foo=fb.load('orders_sample.csv'),
         )
         fb.run()
+
+
         with fb1._connect('test.db') as c:
             self.assertEqual(fet(c, 'orders_sample'), fet(c, 'foo'))
         if os.path.exists('orders_sample.csv'):
             os.remove('orders_sample.csv')
+
+    # You can export as xlsx, it has advantages when you are dealing with unicode files
+    # and also you may find csv insecure sometimes
+    def test_export_xlsx(self):
+        initialize()
+        if os.path.exists('orders_sample.xlsx'):
+            os.remove('orders_sample.xlsx')
+
+        fb.register(
+            orders_sample=fb.load('orders.csv'),
+        )
+        fb.run(export='orders_sample.xlsx')
+        fb.register(
+            foo=fb.load('orders_sample.xlsx'),
+        )
+        fb.run()
+
+        with fb1._connect('test.db') as c:
+            self.assertEqual(fet(c, 'orders_sample'), fet(c, 'foo'))
+        if os.path.exists('orders_sample.xlsx'):
+            os.remove('orders_sample.xlsx')
 
 
 class TestLLVL(unittest.TestCase):
