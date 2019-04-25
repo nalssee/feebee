@@ -4,4 +4,6 @@ Installation
 
 Windows
 ----------------------
-Install anaconda
+Install Anaconda, Visual Studio (C++ desktop development)
+
+pip install feebee 
