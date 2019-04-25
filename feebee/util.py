@@ -319,6 +319,15 @@ def overlap(rs, size, step=1, key=None):
 
 
 def avg(rs, col, wcol=None, ndigits=None):
+    """ Returns the average value of the given column.
+
+    :param rs: a list of rows 
+    :param col: str (column name)
+    :param wcol: str (column for weighted average)
+    :param ndigits: int (number of digits to the right of the decimal point)
+
+    :returns: a float 
+    """
     if wcol:
         xs = [r for r in rs if isnum(r[col], r[wcol])]
         val = np.average([x[col] for x in xs], weights=[x[wcol] for x in xs])\
