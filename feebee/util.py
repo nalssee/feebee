@@ -116,6 +116,8 @@ def where(pred, fn=None):
 
 
 def read_date(date):
+    """ Read date string and returns a python datetime object
+    """
     return ciso8601.parse_datetime(date)
 
 
