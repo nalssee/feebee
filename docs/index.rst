@@ -9,6 +9,7 @@ Welcome to feebee's documentation!
    :maxdepth: 2
    :caption: Contents:
 
+   installation
    tutorial
    code
 

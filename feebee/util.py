@@ -61,6 +61,8 @@ def lag(cols, datecol, ns, add1fn=None, max_missings=10_000):
 
 # You should be very careful if you want to update this generator
 def step(*grouped_seqs):
+    """ Generates tuples of lists of rows for every matching keys 
+    """
     Empty = object()
     NoMore = object()
     EmptyVal = []
@@ -143,6 +145,15 @@ def add_date(date, n):
 
 
 def getX(rs, cols, constant=False):
+    """ Returns a list of lists (matrix X) for linear regression,
+    if constant is True, X with a constant(1) column.
+
+    :param rs: list of rows
+    :param cols: comma separated str for columns to be selected 
+    :param constant: True or False
+
+    :returns: list of lists (matrix X)
+    """
     def getvals_fn(cols, const):
         if const:
             return lambda r: [1] + [r[c] for c in cols]
@@ -154,6 +165,10 @@ def getX(rs, cols, constant=False):
 
 
 def gety(rs, col):
+    """ Returns a list of numbers (matrix X) for linear regression
+
+    :param rs: a list of 
+    """
     return [r[col] for r in rs]
 
 
@@ -216,6 +231,7 @@ def isnum(*xs):
     """ Tests if all of xs are numeric
 
     :param xs: vals of whatever
+
     :returns: True or False
     """
     try:
@@ -230,16 +246,19 @@ def allnum(rs, cols):
     """Returns a list of rows that all of columns are numeric.
 
     :param rs: [r1, r2, ...]
-    :type rs: a list of rows
+    :type rs: list of rows
     :param cols: 'col1, col2'
     :type cols: comma separated string
-    :returns: a list of rows
+
+    :returns: list of rows
     """
     cols = listify(cols)
     return [r for r in rs if all(isnum(r[c]) for c in cols)]
 
 
 def stars(pval):
+    """ Returns a string of stars based on pvalue
+    """
     if pval <= 0.01:
         return "***"
     elif pval <= 0.05:
