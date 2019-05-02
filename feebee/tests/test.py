@@ -626,9 +626,9 @@ class TestRun(unittest.TestCase):
             os.remove('orders_sample.xlsx')
 
 
-class TestLLVL(unittest.TestCase):
-    def test_llvl1(self):
-        # you can do much more complex joining jobs than this using llvl
+class Testlow(unittest.TestCase):
+    def test_low1(self):
+        # you can do much more complex joining jobs than this using low
         initialize()
 
         def join1(seq1, seq2):
@@ -659,7 +659,7 @@ class TestLLVL(unittest.TestCase):
         fb.register(
             tysql_Orders=fb.load('tysql_Orders.csv'),
             tysql_Customers=fb.load('tysql_Customers.csv'),
-            tysql_Orders1=fb.llvl(join1, [('tysql_Orders', 'cust_id'),
+            tysql_Orders1=fb.low(join1, [('tysql_Orders', 'cust_id'),
                                           ('tysql_Customers', 'cust_id')]),
         )
 
@@ -670,8 +670,8 @@ class TestLLVL(unittest.TestCase):
                 result.append(r['cust_id'])
             self.assertEqual(result, [1000000001, 1000000001, 1000000002, 1000000003, 1000000004, 1000000005])
 
-    def test_llvl2(self):
-        # you can do much more complex joining jobs than this using llvl
+    def test_low2(self):
+        # you can do much more complex joining jobs than this using low
         initialize()
 
         def join1(seq1, seq2):
@@ -698,7 +698,7 @@ class TestLLVL(unittest.TestCase):
         fb.register(
             tysql_Customers=fb.load('tysql_Customers.csv'),
             tysql_Vendors=fb.load('tysql_Vendors.csv'),
-            tysql_Customers1=fb.llvl(join1, [('tysql_Customers', 'cust_state'),
+            tysql_Customers1=fb.low(join1, [('tysql_Customers', 'cust_state'),
                                              ('tysql_Vendors', 'vend_state')]),
 
         )
@@ -712,7 +712,7 @@ class TestLLVL(unittest.TestCase):
             self.assertEqual(vendors, ['', '', '', 'Bears R Us', 'Bear Emporium'])
 
     # no order cols
-    def test_llvl3(self):
+    def test_low3(self):
         def firstN(n):
             def fn(seq):
                 for _ in range(n):
@@ -722,8 +722,8 @@ class TestLLVL(unittest.TestCase):
         initialize()
         fb.register(
             products=fb.load('products.csv'),
-            first3=fb.llvl(firstN(3), [('products', '')]),
-            first5=fb.llvl(firstN(5), [('products', None)]),
+            first3=fb.low(firstN(3), [('products', '')]),
+            first5=fb.low(firstN(5), [('products', None)]),
         )
         fb.run()
 

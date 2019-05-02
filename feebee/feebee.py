@@ -394,7 +394,7 @@ def _execute(c, job):
                     yield r
         c.insert(gen(), job['output'])
 
-    elif cmd == 'llvl':
+    elif cmd == 'low':
         sqls = []
         for tbl, cols in job['tables']:
             if cols:
@@ -573,9 +573,9 @@ def union(inputs):
 
 # data: [('tname1', 'col1, col2'), ('tname2', 'col1')]
 # fetch tables ordered by cols
-def llvl(fn=None, data=None):
+def low(fn=None, data=None):
     return {
-        'cmd': 'llvl',
+        'cmd': 'low',
         'fn': fn,
         'inputs': [tbl for tbl, _ in data],
         'tables': data
