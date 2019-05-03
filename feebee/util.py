@@ -1,6 +1,5 @@
 import locale
 import csv
-from openpyxl import load_workbook
 import xlrd
 from datetime import timedelta
 import numpy as np
