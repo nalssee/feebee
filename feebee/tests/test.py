@@ -76,10 +76,15 @@ class TestLoading(unittest.TestCase):
         fb.register(
             ff=fb.load('ff.xls'),
             ff1=fb.load('ff.xlsx'),
+            na_sample=fb.load('na_sample.xlsx'),
         )
         fb.run()
         with fb1._connect('test.db') as c:
-            self.assertEqual(set(c.get_tables()), set(['ff', 'ff1']))
+            self.assertEqual(set(c.get_tables()), set(['ff', 'ff1', 'na_sample']))
+
+            for line in fet(c, 'na_sample'):
+                print(line)
+
 
     def test_loading_sas_file(self):
         fb.register(

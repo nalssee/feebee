@@ -835,7 +835,7 @@ def _read_df(df):
 def _read_excel(filename):
     filename = os.path.join(_CONFIG['ws'], filename)
     # it's OK. Excel files are small
-    df = pd.read_excel(filename)
+    df = pd.read_excel(filename, keep_default_na=False)
     yield from _read_df(df)
 
 
