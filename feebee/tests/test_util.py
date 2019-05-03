@@ -266,6 +266,13 @@ class TestEmAll(unittest.TestCase):
                 for _ in range(17):
                     next(rs)
                 self.assertEqual(next(rs)[1], 13290693)
+
+    # xls file reading   
+    def test_readxl3(self):
+         list(readxl('ff.xls'))
+        # self.assertEqual(list(readxl('ff.xls')), list(readxl('ff.xlsx')))
+        
+
  
     def test_listify(self):
         self.assertEqual(listify('a, b, c'), ['a', 'b', 'c'])

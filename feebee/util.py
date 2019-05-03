@@ -1,6 +1,7 @@
 import locale
 import csv
 from openpyxl import load_workbook
+import xlrd
 from datetime import timedelta
 import numpy as np
 from itertools import accumulate, groupby, chain
@@ -305,22 +306,30 @@ def readxl(fname, sheets=None, encoding='utf-8', delimiter=None,
             for rs in csv.reader((x.replace('\0', '') for x in fin),
                                  delimiter=delimiter, quotechar=quotechar):
                 yield [conv(x) for x in rs]
+
     else:
-        workbook = load_workbook(fname, read_only=True)
-        sheets = listify(sheets) if sheets else [workbook.sheetnames[0]]
-        # all sheets
+        # openpyxl does not work with the old ".xls" format
+        def getval(cell):
+            if cell.ctype == xlrd.XL_CELL_EMPTY or cell.ctype == xlrd.XL_CELL_TEXT:
+                return cell.value.strip()
+            elif cell.value.is_integer():
+                return int(cell.value)
+            else:
+                return cell.value
+
+        workbook = xlrd.open_workbook(fname)
+        sheets = listify(sheets) if sheets else [workbook.sheets()[0].name]
         if sheets == ['*']:
-            sheets = workbook.sheetnames
-            
+            sheets = [sheet.name for sheet in workbook.sheets()]
         if by_sheet:
             for sheet in sheets:
-                lines = ([c.value for c in r] for r in workbook[sheet].iter_rows())
+                lines = ([getval(c) for c in r] for r in workbook.sheet_by_name(sheet).get_rows()) 
                 yield (sheet, lines)
         else:
             for sheet in sheets:
-                for row in workbook[sheet].iter_rows():
-                    yield [c.value for c in row]
-
+                for row in workbook.sheet_by_name(sheet).get_rows():
+                    yield [getval(c) for c in row]
+                
 
 # implicit ordering
 def group(rs, key):
