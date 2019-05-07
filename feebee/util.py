@@ -3,7 +3,7 @@ import csv
 import xlrd
 from datetime import timedelta
 import numpy as np
-from itertools import accumulate, groupby, chain
+from itertools import accumulate, groupby, chain, islice
 import ciso8601
 
 
@@ -115,6 +115,12 @@ def where(pred, fn=None):
         return func
     else:
         return lambda r: (r if pred(r) else None)
+
+
+def head(n):
+    def _f(rs):
+        yield from islice(rs, 0, n)
+    return _f
 
 
 def read_date(date):

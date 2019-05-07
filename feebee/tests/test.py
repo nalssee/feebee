@@ -11,7 +11,7 @@ sys.path.append(PYPATH)
 import feebee as fb
 # only for testing
 import feebee.feebee as fb1
-from feebee.util import step, listify
+from feebee.util import step, listify, head
 
 # customers.csv
 # CustomerID,CustomerName,ContactName,Address,City,PostalCode,Country
@@ -631,7 +631,7 @@ class TestRun(unittest.TestCase):
             os.remove('orders_sample.xlsx')
 
 
-class Testlow(unittest.TestCase):
+class TestLow(unittest.TestCase):
     def test_low1(self):
         # you can do much more complex joining jobs than this using low
         initialize()
@@ -736,6 +736,17 @@ class Testlow(unittest.TestCase):
             self.assertEqual(len(fet(c, 'first3')), 3)
             self.assertEqual(len(fet(c, 'first5')), 5)
 
+    def test_low4(self):
+        initialize()
+        fb.register(
+            products=fb.load('products.csv'),
+            sample=fb.low(head(5), [('products', None)]),
+        )
+        fb.run()
+
+        with fb1._connect('test.db') as c:
+            self.assertEqual(len(fet(c, 'sample')), 5)
+ 
 
 # utils
 def nlines_file(name):
