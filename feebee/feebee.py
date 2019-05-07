@@ -187,6 +187,7 @@ class _Connection:
             self._cursor.executemany(istmt, rs)
         except sqlite3.OperationalError:
             raise InvalidColumns(cols)
+    
 
     def load(self, filename, name, delimiter=None, quotechar='"',
              encoding='utf-8', newline="\n", fn=None):
@@ -405,6 +406,15 @@ def _execute(c, job):
         c.insert(tqdm(job['fn'](*(c.fetch(sql) for sql in sqls))),
                  job['output'])
 
+    elif cmd == 'df':
+        dfs = []
+        for tbl in job['inputs']:
+            dfs.append(pd.DataFrame(c.fetch(f"select * from {tbl}")))
+        result_df = job['fn'](*dfs)
+        c.insert(_tqdm((r.to_dict() for _, r in result_df.iterrows()), 
+                        result_df.shape[0], None), 
+                 job['output'])
+
 
 def _line_count(fname, encoding, newline):
     with open(fname, encoding=encoding, newline=newline) as f:
@@ -579,6 +589,14 @@ def low(fn=None, data=None):
         'fn': fn,
         'inputs': [tbl for tbl, _ in data],
         'tables': data
+    }
+
+
+def df(fn=None, data=None):
+    return {
+        'cmd': 'df',
+        'fn': fn, 
+        'inputs': listify(data),
     }
 
 

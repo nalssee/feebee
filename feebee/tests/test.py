@@ -746,7 +746,23 @@ class TestLow(unittest.TestCase):
 
         with fb1._connect('test.db') as c:
             self.assertEqual(len(fet(c, 'sample')), 5)
- 
+
+
+class TestDF(unittest.TestCase):
+    def test_df1(self):
+        def foo(df):
+            return df[df.shipperid == 2] 
+
+        initialize()
+        fb.register(
+            orders=fb.load('orders.csv'),
+            orders1=fb.df(foo, 'orders'),
+        )
+        fb.run()
+
+        with fb1._connect('test.db') as c:
+            self.assertEqual(len(fet(c, 'orders1')), 74)
+
 
 # utils
 def nlines_file(name):
