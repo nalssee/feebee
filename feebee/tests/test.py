@@ -513,44 +513,6 @@ class TestLogMsg(unittest.TestCase):
         remdb()
 
 
-class TestHelperTables(unittest.TestCase):
-    def test_helper_tables(self):
-        def stupid(r, table):
-            r['foo'] = len(table)
-            return r
-        initialize()
-        fb.register(
-            orders=fb.load('orders.csv'),
-            orderdetails=fb.load('orderdetails.csv'),
-
-            orders1=fb.map(stupid, 'orders', tables=[('orderdetails', lambda rs: [1 for r in rs])])
-        )
-        fb.run()
-        with fb1._connect('test.db') as c:
-            self.assertEqual(fet(c, 'orders1')[0]['foo'], len(fet(c, 'orderdetails')))
-
-    def test_helper_tables_parallel(self):
-        def one(rs):
-            return [1 for r in rs]
-
-        def stupid(r, table1, table2):
-            r['foo'] = len(table1)
-            r['bar'] = len(table2)
-            return r
-
-        initialize()
-        fb.register(
-            orders=fb.load('orders.csv'),
-            products=fb.load('products.csv'),
-            orderdetails=fb.load('orderdetails.csv'),
-            orders1=fb.map(stupid, 'orders', tables=[('orderdetails',  None), ('products', one)], parallel=True)
-        )
-        fb.run()
-        with fb1._connect('test.db') as c:
-            self.assertEqual(fet(c, 'orders1')[0]['foo'], len(fet(c, 'orderdetails')))
-            self.assertEqual(fet(c, 'orders1')[0]['bar'], len(fet(c, 'products')))
-
-
 class TestRun(unittest.TestCase):
     def test_refresh(self):
         fb.register(

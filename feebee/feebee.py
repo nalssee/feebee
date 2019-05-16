@@ -335,11 +335,8 @@ def _flatten(seq):
             yield from x
 
 
-def _applyfn(fn, seq, tables):
-    if tables:
-        yield from _flatten(fn(rs, *tables) for rs in seq)
-    else:
-        yield from _flatten(fn(rs) for rs in seq)
+def _applyfn(fn, seq):
+    yield from _flatten(fn(rs) for rs in seq)
 
 
 def _tqdm(seq, total, by):
@@ -378,10 +375,7 @@ def _execute(c, job):
             logger.info(f"processing {job['cmd']}: {job['output']}")
             seq = c.fetch(f"select * from {job['inputs'][0]}",
                           listify(job['by']))
-            helper_tables = [fn(list(c.fetch(f'select * from {tbl}')))
-                             for tbl, fn in job['tables']]
-            seq1 = _applyfn(job['fn'], _tqdm(seq, tsize, job['by']),
-                            helper_tables)
+            seq1 = _applyfn(job['fn'], _tqdm(seq, tsize, job['by']))
             c.insert(seq1, job['output'])
 
     # The only place where 'insert' is not used
@@ -424,17 +418,12 @@ def _exec_parallel_map(c, job, max_workers, tsize):
     bys = listify(job['by']) if job['by'] else None
     exe = Pool(len(dbfiles))
 
-    helper_tables = [fn(list(c.fetch(f'select * from {tbl}')))
-                     for tbl, fn in job['tables']]
-
     def _proc(dbfile, cut):
         query = f"""select * from {ttable}
         where _ROWID_ > {cut[0]} and _ROWID_ <= {cut[1]}"""
         with _connect(dbfile) as c1:
             n = cut[1] - cut[0]
-            seq = _applyfn(job['fn'],
-                           _tqdm(c1.fetch(query, by=bys), n, by=bys),
-                           helper_tables)
+            seq = _applyfn(job['fn'], _tqdm(c1.fetch(query, by=bys), n, by=bys))
             try:
                 c1.insert(seq, job['output'])
             except NoRowToInsert:
@@ -534,17 +523,12 @@ def load(file=None, fn=None, delimiter=None, quotechar='"', encoding='utf-8'):
             'inputs': []}
 
 
-# tables: [('tname1', fn1), ('tname2', fn2)]
-# fn transforms a table
-def map(fn=None, data=None, by=None, parallel=False, tables=None):
+def map(fn=None, data=None, by=None, parallel=False):
     return {
         'cmd': 'map',
         'fn': fn,
-        'inputs': [data] + ([tbl for tbl, _ in tables] if tables else []),
+        'inputs': listify(data),
         'by': by,
-        'tables':
-            [(tbl, fn or (lambda x: x)) for tbl, fn in tables]
-            if tables else [],
         'parallel': parallel
     }
 
