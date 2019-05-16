@@ -388,13 +388,6 @@ def _execute(c, job):
     elif cmd == 'join':
         c.join(job['args'], job['output'])
 
-    elif cmd == 'union':
-        def gen():
-            for inp in job['inputs']:
-                for r in c.fetch(f"select * from {inp}"):
-                    yield r
-        c.insert(gen(), job['output'])
-
     elif cmd == 'low':
         sqls = []
         for tbl, cols in job['tables']:
@@ -404,15 +397,6 @@ def _execute(c, job):
             else:
                 sqls.append(f"select * from {tbl}")
         c.insert(tqdm(job['fn'](*(c.fetch(sql) for sql in sqls))),
-                 job['output'])
-
-    elif cmd == 'df':
-        dfs = []
-        for tbl in job['inputs']:
-            dfs.append(pd.DataFrame(c.fetch(f"select * from {tbl}")))
-        result_df = job['fn'](*dfs)
-        c.insert(_tqdm((r.to_dict() for _, r in result_df.iterrows()), 
-                        result_df.shape[0], None), 
                  job['output'])
 
 
@@ -574,29 +558,28 @@ def join(*args):
     }
 
 
-def union(inputs):
-    return {
-        'cmd': 'union',
-        'inputs': listify(inputs)
-    }
-
-
-# data: [('tname1', 'col1, col2'), ('tname2', 'col1')]
-# fetch tables ordered by cols
 def low(fn=None, data=None):
+    """Sometimes you have to load the whole table(s) on memory
+    which can be inefficient.
+
+    :param fn: function (or generator) that accepts iterator(s) as args
+    :param data: 
+        'tname1, tname2, tname3' 
+        or
+        ['tname1', ('tname2', 'col1, col2'), 'tname3'] 
+        'col1, col2' represents sorting columns
+    """
+    def handle_data(xs):
+        if isinstance(xs, str):
+            return [(x, None) for x in listify(xs)]
+        return [(x, None) if isinstance(x, str) else x for x in xs]
+
+    data = handle_data(data)
     return {
         'cmd': 'low',
         'fn': fn,
         'inputs': [tbl for tbl, _ in data],
         'tables': data
-    }
-
-
-def df(fn=None, data=None):
-    return {
-        'cmd': 'df',
-        'fn': fn, 
-        'inputs': listify(data),
     }
 
 
