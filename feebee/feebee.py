@@ -746,8 +746,6 @@ def _run():
         initial_jobs_to_do = list(jobs_to_do)
         logger.info(f'To Create: {[j["output"] for j in jobs_to_do]}')
 
-        print('abc', required_tables)
-        print(_JOBS)
         while jobs_to_do:
             cnt = 0
             for i, job in enumerate(jobs_to_do):
