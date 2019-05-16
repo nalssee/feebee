@@ -495,6 +495,31 @@ class TestParallel(unittest.TestCase):
             self.assertEqual(list(fet(c, 'customers1')), list(fet(c, 'customers1s')))
             self.assertEqual(list(fet(c, 'customers2')), list(fet(c, 'customers2s')))
 
+    def test_pmap_with_get(self):
+        def orders1():
+            d = {}
+            for r in fb.get('customers'):
+                d[r['CustomerID']] = r['CustomerName']
+            print(d)
+            def _f(r):
+                r['customer_name'] = d.get(r['customerid'], '')
+                return r
+
+            return _f
+
+        fb.register(
+            customers=fb.load('customers.csv'),
+            orders=fb.load('orders.csv'),
+            orders1=fb.map(orders1, 'orders'),
+        )
+
+        fb.run()
+
+        with fb1._connect('test.db') as c:
+            for r in fet(c, 'orders1'):
+                print(r)
+
+
     def tearDown(self):
         remdb()
 

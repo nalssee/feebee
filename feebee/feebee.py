@@ -9,6 +9,7 @@ import signal
 import logging
 from contextlib import contextmanager
 from itertools import groupby
+from inspect import signature
 
 import coloredlogs
 import psutil
@@ -102,6 +103,10 @@ class InvalidColumns(FeebeeError):
 
 
 class TableDuplication(FeebeeError):
+    pass
+
+
+class TableNotExist(FeebeeError):
     pass
 
 
@@ -283,7 +288,6 @@ class _Connection:
         for ind_tname in ind_tnames:
             self._cursor.execute(f"drop index {ind_tname}")
 
-
     def export(self, tables):
         for table in listify(tables):
             table, ext = os.path.splitext(table)
@@ -320,6 +324,20 @@ class _Connection:
         return self._cursor.fetchone()['c']
 
 
+def get(tname, cols=None):
+    tname = tname.strip()
+    with _connect(_DBNAME) as c:
+        if tname in c.get_tables():
+            if cols:
+                seq = c.fetch(f"""select * from {tname} 
+                                  order by {','.join(listify(cols))}""")
+            else:
+                seq = c.fetch(f"select * from {tname}")
+            return list(seq)
+        else:
+            raise TableNotExist(tname)
+    
+ 
 def _dict_factory(cursor, row):
     d = {}
     for idx, col in enumerate(cursor.description):
@@ -359,6 +377,7 @@ def _execute(c, job):
                quotechar=job['quotechar'], encoding=job['encoding'],
                fn=job['fn'])
     elif cmd == 'map':
+
         tsize = c._size(job['inputs'][0])
         if job['parallel']:
             max_workers = int(job['parallel'])\
@@ -376,6 +395,7 @@ def _execute(c, job):
             seq = c.fetch(f"select * from {job['inputs'][0]}",
                           listify(job['by']))
             seq1 = _applyfn(job['fn'], _tqdm(seq, tsize, job['by']))
+            # seq1 = _applyfn(fn, _tqdm(seq, tsize, job['by']))
             c.insert(seq1, job['output'])
 
     # The only place where 'insert' is not used
@@ -527,7 +547,7 @@ def map(fn=None, data=None, by=None, parallel=False):
     return {
         'cmd': 'map',
         'fn': fn,
-        'inputs': listify(data),
+        'inputs': [data],
         'by': by,
         'parallel': parallel
     }
@@ -725,6 +745,9 @@ def _run():
         jobs_to_do = find_jobs_to_do(jobs)
         initial_jobs_to_do = list(jobs_to_do)
         logger.info(f'To Create: {[j["output"] for j in jobs_to_do]}')
+
+        print('abc', required_tables)
+        print(_JOBS)
         while jobs_to_do:
             cnt = 0
             for i, job in enumerate(jobs_to_do):
@@ -734,7 +757,12 @@ def _run():
                             logger.info(
                                 f"processing {job['cmd']}: {job['output']}")
                         _execute(c, job)
+
                     except Exception as e:
+                        if isinstance(e, TableNotExist) and\
+                            e.args[0] in required_tables:
+                                continue
+
                         logger.error(f"Failed: {job['output']}")
                         logger.error(f"{type(e).__name__}: {e}", exc_info=True)
                         try:
@@ -834,3 +862,7 @@ def _read_stata(filename):
 
 def _is_reserved(x):
     return x.upper() in _RESERVED_KEYWORDS
+
+
+def _is_thunk(fn):
+    return len(signature(fn).parameters) == 0
