@@ -11,7 +11,7 @@ sys.path.append(PYPATH)
 import feebee as fb
 # only for testing
 import feebee.feebee as fb1
-from feebee.util import step, listify, head
+from feebee.util import step, head
 
 # customers.csv
 # CustomerID,CustomerName,ContactName,Address,City,PostalCode,Country
@@ -572,7 +572,6 @@ class TestRun(unittest.TestCase):
         )
         fb.run()
 
-
         with fb1._connect('test.db') as c:
             self.assertEqual(fet(c, 'orders_sample'), fet(c, 'foo'))
         if os.path.exists('orders_sample.csv'):
@@ -634,7 +633,7 @@ class TestLow(unittest.TestCase):
             tysql_Orders=fb.load('tysql_Orders.csv'),
             tysql_Customers=fb.load('tysql_Customers.csv'),
             tysql_Orders1=fb.low(join1, [('tysql_Orders', 'cust_id'),
-                                          ('tysql_Customers', 'cust_id')]),
+                                         ('tysql_Customers', 'cust_id')]),
         )
 
         fb.run()
