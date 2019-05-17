@@ -500,7 +500,7 @@ class TestParallel(unittest.TestCase):
             d = {}
             for r in fb.get('customers'):
                 d[r['CustomerID']] = r['CustomerName']
-            print(d)
+
             def _f(r):
                 r['customer_name'] = d.get(r['customerid'], '')
                 return r
@@ -511,13 +511,16 @@ class TestParallel(unittest.TestCase):
             customers=fb.load('customers.csv'),
             orders=fb.load('orders.csv'),
             orders1=fb.map(orders1, 'orders'),
+            orders2=fb.map(orders1, 'orders', parallel=True),
         )
 
         fb.run()
 
         with fb1._connect('test.db') as c:
-            for r in fet(c, 'orders1'):
-                print(r)
+            names1 = [r['customer_name'] for r in fet(c, 'orders1') if r['customer_name']]
+            names2 = [r['customer_name'] for r in fet(c, 'orders2') if r['customer_name']]
+            self.assertEqual(len(names1), len(fet(c, 'orders')))
+            self.assertEqual(names1, names2)
 
 
     def tearDown(self):

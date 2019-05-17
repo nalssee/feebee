@@ -42,6 +42,7 @@ _GRAPH_NAME = _filename + '.gv'
 _JOBS = {}
 # folder name (in workspace) for temporary databases for parallel work
 _TEMP = "_temp"
+_CONN = [None] 
 # sqlite3 keywords
 _RESERVED_KEYWORDS = {
     "ABORT", "ACTION", "ADD", "AFTER", "ALL", "ALTER", "ANALYZE", "AND", "AS",
@@ -193,7 +194,6 @@ class _Connection:
         except sqlite3.OperationalError:
             raise InvalidColumns(cols)
     
-
     def load(self, filename, name, delimiter=None, quotechar='"',
              encoding='utf-8', newline="\n", fn=None):
         total = None
@@ -304,7 +304,7 @@ class _Connection:
 
             else:
                 with open(os.path.join(_CONFIG['ws'], table + '.csv'), 'w',
-                        encoding='utf-8', newline='') as f:
+                          encoding='utf-8', newline='') as f:
                     rs = self.fetch(f'select * from {table}')
                     r0, rs = spy(rs)
                     if r0 == []:
@@ -315,7 +315,6 @@ class _Connection:
                     for r in rs:
                         writer.writerow(r)
                 
-
     def _cols(self, query):
         return [c[0] for c in self._cursor.execute(query).description]
 
@@ -325,18 +324,25 @@ class _Connection:
 
 
 def get(tname, cols=None):
+    """Get a list of rows (the whole table) ordered by cols
+
+    :param tname: table name
+    :param cols: comma separated string
+
+    :returns: a list of rows
+    """
     tname = tname.strip()
-    with _connect(_DBNAME) as c:
-        if tname in c.get_tables():
-            if cols:
-                seq = c.fetch(f"""select * from {tname} 
-                                  order by {','.join(listify(cols))}""")
-            else:
-                seq = c.fetch(f"select * from {tname}")
-            return list(seq)
+    c = _CONN[0]
+    if tname in c.get_tables():
+        if cols:
+            seq = c.fetch(f"""select * from {tname} 
+                              order by {','.join(listify(cols))}""")
         else:
-            raise TableNotExist(tname)
-    
+            seq = c.fetch(f"select * from {tname}")
+        return list(seq)
+    else:
+        raise TableNotExist(tname)
+
  
 def _dict_factory(cursor, row):
     d = {}
@@ -376,9 +382,11 @@ def _execute(c, job):
         c.load(job['file'], job['output'], delimiter=job['delimiter'],
                quotechar=job['quotechar'], encoding=job['encoding'],
                fn=job['fn'])
-    elif cmd == 'map':
 
+    elif cmd == 'map':
         tsize = c._size(job['inputs'][0])
+        job['evaled_fn'] = job['fn']() if _is_thunk(job['fn']) else job['fn']
+
         if job['parallel']:
             max_workers = int(job['parallel'])\
                 if job['parallel'] >= 2 else _CONFIG['max_workers']
@@ -394,8 +402,7 @@ def _execute(c, job):
             logger.info(f"processing {job['cmd']}: {job['output']}")
             seq = c.fetch(f"select * from {job['inputs'][0]}",
                           listify(job['by']))
-            seq1 = _applyfn(job['fn'], _tqdm(seq, tsize, job['by']))
-            # seq1 = _applyfn(fn, _tqdm(seq, tsize, job['by']))
+            seq1 = _applyfn(job['evaled_fn'], _tqdm(seq, tsize, job['by']))
             c.insert(seq1, job['output'])
 
     # The only place where 'insert' is not used
@@ -443,7 +450,8 @@ def _exec_parallel_map(c, job, max_workers, tsize):
         where _ROWID_ > {cut[0]} and _ROWID_ <= {cut[1]}"""
         with _connect(dbfile) as c1:
             n = cut[1] - cut[0]
-            seq = _applyfn(job['fn'], _tqdm(c1.fetch(query, by=bys), n, by=bys))
+            seq = _applyfn(job['evaled_fn'], 
+                           _tqdm(c1.fetch(query, by=bys), n, by=bys))
             try:
                 c1.insert(seq, job['output'])
             except NoRowToInsert:
@@ -697,6 +705,8 @@ def _run():
     jobs = append_output(_JOBS)
     required_tables = find_required_tables(jobs)
     with _connect(_DBNAME) as c:
+        _CONN[0] = c
+
         def delete_after(missing_table, paths):
             for path in paths:
                 if missing_table in path:
@@ -758,8 +768,8 @@ def _run():
 
                     except Exception as e:
                         if isinstance(e, TableNotExist) and\
-                            e.args[0] in required_tables:
-                                continue
+                          e.args[0] in required_tables:
+                            continue
 
                         logger.error(f"Failed: {job['output']}")
                         logger.error(f"{type(e).__name__}: {e}", exc_info=True)
