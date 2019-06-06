@@ -7,6 +7,21 @@ from itertools import accumulate, groupby, chain, islice
 import ciso8601
 
 
+class Table:
+    def __init__(self, n, k):
+        self._col_digits = len(str(k))
+        self.data = [{('c' + str(j).zfill(self._col_digits)): '' for j in range(k)} for _ in range(n)]
+
+    def __getitem__(self, pos):
+        i, j = pos
+        i = i - 1
+        j = 'c' + f
+        
+
+    def __setitem__(self, pos, value):
+        pass 
+
+
 def lag(cols, datecol, ns, add1fn=None, max_missings=10_000):
     """ create columns for lags and leads, ex) col_1, col_2n
     """
