@@ -772,7 +772,12 @@ def _run():
                             continue
 
                         logger.error(f"Failed: {job['output']}")
-                        logger.error(f"{type(e).__name__}: {e}", exc_info=True)
+
+                        # You don't need verbose error messages for NoRowToInsert
+                        # You may sometimes want to just iterate tables.  
+                        if not isinstance(e, NoRowToInsert):
+                            logger.error(f"{type(e).__name__}: {e}", exc_info=True)
+
                         try:
                             c.drop(job['output'])
                         except Exception:
