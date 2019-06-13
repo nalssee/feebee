@@ -522,7 +522,6 @@ class TestParallel(unittest.TestCase):
             self.assertEqual(len(names1), len(fet(c, 'orders')))
             self.assertEqual(names1, names2)
 
-
     def tearDown(self):
         remdb()
 
