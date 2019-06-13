@@ -29,6 +29,7 @@ from feebee.util import step, head
 # 10250,34,4,1996-07-08,2
 # 10251,84,3,1996-07-08,1
 
+
 def remdb():
     if os.path.isfile('test.db'):
         os.remove('test.db')
