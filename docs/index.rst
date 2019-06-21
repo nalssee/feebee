@@ -9,7 +9,7 @@ Welcome to feebee's documentation!
    :maxdepth: 2
    :caption: Contents:
 
-   Why another data analysis package?
+   Why
    tutorial
    code
 
