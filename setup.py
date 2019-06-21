@@ -20,6 +20,7 @@ setup(name='feebee',
           'more-itertools>=5.0.0',
           'coloredlogs>=10.0',
           'tqdm>=4.29.1',
+          # 'statsmodels==0.10.0rc2 --pre'
           # requires c/c++ compiler installation
           'ciso8601>=2.1.1',
           'pandas',
