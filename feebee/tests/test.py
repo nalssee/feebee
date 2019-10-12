@@ -715,6 +715,21 @@ class TestLow(unittest.TestCase):
         with fb1._connect('test.db') as c:
             self.assertEqual(len(fet(c, 'sample')), 5)
 
+    def test_low5(self):
+        "You don't have to pass tables as args"
+        def sample():
+            for i in range(5):
+                yield {'a': i}
+
+        initialize()
+        fb.register(
+            sample=fb.low(sample),
+        )
+        fb.run()
+
+        with fb1._connect('test.db') as c:
+            self.assertEqual(len(fet(c, 'sample')), 5)
+
 
 # utils
 def nlines_file(name):

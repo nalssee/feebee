@@ -417,8 +417,13 @@ def _execute(c, job):
                                 order by {','.join(listify(cols))}""")
             else:
                 sqls.append(f"select * from {tbl}")
-        c.insert(tqdm(job['fn'](*(c.fetch(sql) for sql in sqls))),
-                 job['output'])
+
+        if sqls:
+            c.insert(tqdm(job['fn'](*(c.fetch(sql) for sql in sqls))),
+                    job['output'])
+        else:
+            # no input tables
+            c.insert(tqdm(job['fn']()), job['output'])
 
 
 def _line_count(fname, encoding, newline):
@@ -586,7 +591,7 @@ def low(fn=None, data=None):
             return [(x, None) for x in listify(xs)]
         return [(x, None) if isinstance(x, str) else x for x in xs]
 
-    data = handle_data(data)
+    data = handle_data(data) if data else []
     return {
         'cmd': 'low',
         'fn': fn,
