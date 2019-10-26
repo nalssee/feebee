@@ -109,10 +109,6 @@ class TableDuplication(FeebeeError):
     pass
 
 
-class TableNotExist(FeebeeError):
-    pass
-
-
 @contextmanager
 def _connect(dbfile):
     conn = _Connection(dbfile)
@@ -325,8 +321,8 @@ class _Connection:
         return self._cursor.fetchone()['c']
 
 
-def get(tname, cols=None):
-    """Get a list of rows (the whole table) ordered by cols
+def read(tname, cols=None):
+    """Reads a list of rows (the whole table) ordered by cols
 
     :param tname: table name
     :param cols: comma separated string
@@ -342,10 +338,27 @@ def get(tname, cols=None):
         else:
             seq = c.fetch(f"select * from {tname}")
         return list(seq)
-    else:
-        raise TableNotExist(tname)
+    # This may not be a good idea
+    # but if not, we need one more function like 'is_table_exist'
+    return []
 
- 
+
+def write(rs, tname):
+    """Writes a list of rows, actually, OVERWRITES.
+
+    :param rs: list of rows 
+    :param tname: table name
+    """
+    if tname in _JOBS:
+        # You cannot use a table name in the main work flow
+        raise TableDuplication(tname)
+
+    c = _CONN[0]
+    if tname in c.get_tables():
+        c.drop(tname)
+    c.insert(rs, tname)
+    
+
 def _dict_factory(cursor, row):
     d = {}
     for idx, col in enumerate(cursor.description):
@@ -774,10 +787,7 @@ def _run():
                         _execute(c, job)
 
                     except Exception as e:
-                        if isinstance(e, TableNotExist) and\
-                          e.args[0] in required_tables:
-                            continue
-                        
+                       
                         if isinstance(e, NoRowToInsert):
                             # Many times you want it to be silenced
                             # because you want to test it before actually write the code

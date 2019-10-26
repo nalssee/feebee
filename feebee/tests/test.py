@@ -499,7 +499,7 @@ class TestParallel(unittest.TestCase):
     def test_pmap_with_get(self):
         def orders1():
             d = {}
-            for r in fb.get('customers'):
+            for r in fb.read('customers'):
                 d[r['CustomerID']] = r['CustomerName']
 
             def _f(r):
@@ -720,7 +720,7 @@ class TestLow(unittest.TestCase):
         def sample():
             for i in range(5):
                 yield {'a': i}
-
+            
         initialize()
         fb.register(
             sample=fb.low(sample),
@@ -729,6 +729,59 @@ class TestLow(unittest.TestCase):
 
         with fb1._connect('test.db') as c:
             self.assertEqual(len(fet(c, 'sample')), 5)
+
+    def test_read_and_write1(self):
+        initialize()
+        def foo():
+            r = {
+                'a': 10,
+            }
+            with self.assertRaises(fb1.TableDuplication):
+                fb.write([r], 'foo')
+            return [] 
+
+        fb.register(
+            foo = fb.low(foo),
+        )
+        fb.run()
+
+    def test_read_and_write2(self):
+        initialize()
+        r = {
+            'a': 10,
+        }
+
+        def foo():
+            fb.write([r], 'temp1')
+            return {'c': 3}
+
+        fb.register(
+            foo = fb.low(foo),
+        )
+        fb.run()
+
+        with fb1._connect('test.db') as c:
+            self.assertEqual(fet(c, 'temp1'), [r])
+
+        def bar():
+            fb.write(
+                [{'d': 5}], 'temp1'
+            )
+            return {'x': 10} 
+
+        fb.register(
+            bar = fb.low(bar),
+        )
+        fb.run()
+
+        # must be overwritten
+        with fb1._connect('test.db') as c:
+            self.assertEqual(fet(c, 'temp1'), [{'d': 5}])
+
+
+class TestException(unittest.TestCase):
+    pass
+
 
 
 # utils
