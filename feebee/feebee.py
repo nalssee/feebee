@@ -80,10 +80,12 @@ class FeebeeError(Exception):
 
 
 class NoRowToInsert(FeebeeError):
+    "Where there's no row to write to a database"
     pass
 
 
 class NoRowToWrite(FeebeeError):
+    "When there's no row to write to a CSV file"
     pass
 
 
@@ -775,9 +777,14 @@ def _run():
                         if isinstance(e, TableNotExist) and\
                           e.args[0] in required_tables:
                             continue
-
-                        logger.error(f"Failed: {job['output']}")
-                        logger.error(f"{type(e).__name__}: {e}", exc_info=True)
+                        
+                        if isinstance(e, NoRowToInsert):
+                            # Many times you want it to be silenced
+                            # because you want to test it before actually write the code
+                            logger.warning(f"No row to insert: {job['output']}")
+                        else:
+                            logger.error(f"Failed: {job['output']}")
+                            logger.error(f"{type(e).__name__}: {e}", exc_info=True)
 
                         try:
                             c.drop(job['output'])
