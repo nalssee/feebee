@@ -298,7 +298,7 @@ class _Connection:
                 sheet.append(header)
                 for r in rs:
                     sheet.append(list(r.values()))
-                book.save(f'{table}.xlsx')
+                book.save(os.path.join(_CONFIG['ws'], f'{table}.xlsx'))
 
             else:
                 with open(os.path.join(_CONFIG['ws'], table + '.csv'), 'w',
@@ -329,17 +329,12 @@ def read(tname, cols=None):
 
     :returns: a list of rows
     """
-    tname = tname.strip()
-    c = _CONN[0]
-    if tname in c.get_tables():
-        if cols:
-            seq = c.fetch(f"""select * from {tname} 
-                              order by {','.join(listify(cols))}""")
-        else:
-            seq = c.fetch(f"select * from {tname}")
-        return list(seq)
+    tname, _ = os.path.splitext(tname.strip())
+    tname = tname + '.xlsx'
+    if os.path.isfile(os.path.join(_CONFIG['ws'], tname)):
+        return list(_read_excel(tname))
     # This may not be a good idea
-    # but if not, we need one more function like 'is_table_exist'
+    # but it could be cumbersome. 
     return []
 
 
@@ -349,15 +344,16 @@ def write(rs, tname):
     :param rs: list of rows 
     :param tname: table name
     """
-    if tname in _JOBS:
-        # You cannot use a table name in the main work flow
-        raise TableDuplication(tname)
+    tname, _ = os.path.splitext(tname)
+    tname = tname + '.xlsx'
+    book = Workbook()
+    sheet = book.active
+    header = list(rs[0])
+    sheet.append(header)
+    for r in rs:
+        sheet.append(list(r.values()))
+    book.save(os.path.join(_CONFIG['ws'], tname))
 
-    c = _CONN[0]
-    if tname in c.get_tables():
-        c.drop(tname)
-    c.insert(rs, tname)
-    
 
 def _dict_factory(cursor, row):
     d = {}
@@ -374,8 +370,11 @@ def _flatten(seq):
             yield from x
 
 
-def _applyfn(fn, seq):
-    yield from _flatten(fn(rs) for rs in seq)
+def _applyfn(fn, seq, arg=None):
+    if arg:
+        yield from _flatten(fn(rs, arg) for rs in seq)
+    else:
+        yield from _flatten(fn(rs) for rs in seq)
 
 
 def _tqdm(seq, total, by):
@@ -417,7 +416,7 @@ def _execute(c, job):
             logger.info(f"processing {job['cmd']}: {job['output']}")
             seq = c.fetch(f"select * from {job['inputs'][0]}",
                           listify(job['by']))
-            seq1 = _applyfn(job['evaled_fn'], _tqdm(seq, tsize, job['by']))
+            seq1 = _applyfn(job['evaled_fn'], _tqdm(seq, tsize, job['by']), job['arg'])
             c.insert(seq1, job['output'])
 
     # The only place where 'insert' is not used
@@ -465,7 +464,7 @@ def _exec_parallel_map(c, job, max_workers, tsize):
     bys = listify(job['by']) if job['by'] else None
     exe = Pool(len(dbfiles))
 
-    def _proc(dbfile, cut):
+    def _proc(dbfile, cut, arg):
         query = f"""select * from {ttable}
         where _ROWID_ > {cut[0]} and _ROWID_ <= {cut[1]}"""
         with _connect(dbfile) as c1:
@@ -539,7 +538,8 @@ def _exec_parallel_map(c, job, max_workers, tsize):
             for dbfile in dbfiles[1:]:
                 copyfile(dbfiles[0], dbfile)
 
-            exe.map(_proc, dbfiles, zip([0] + newbreaks, newbreaks))
+            exe.map(_proc, dbfiles, zip([0] + newbreaks, newbreaks), 
+                    [job['arg']] * len(dbfiles))
             _collect_tables(dbfiles)
         finally:
             _delete_dbfiles(dbfiles)
@@ -555,7 +555,8 @@ def _exec_parallel_map(c, job, max_workers, tsize):
             for dbfile in dbfiles[1:]:
                 copyfile(dbfiles[0], dbfile)
 
-            exe.map(_proc, dbfiles, zip([0] + breaks, breaks + [tsize]))
+            exe.map(_proc, dbfiles, zip([0] + breaks, breaks + [tsize]), 
+                    [job['arg']] * len(dbfiles))
             _collect_tables(dbfiles)
         finally:
             _delete_dbfiles(dbfiles)
@@ -571,12 +572,13 @@ def load(file=None, fn=None, delimiter=None, quotechar='"', encoding='utf-8'):
             'inputs': []}
 
 
-def map(fn=None, data=None, by=None, parallel=False):
+def map(fn=None, data=None, by=None, arg=None, parallel=False):
     return {
         'cmd': 'map',
         'fn': fn,
         'inputs': [data],
         'by': by,
+        'arg': arg,
         'parallel': parallel
     }
 

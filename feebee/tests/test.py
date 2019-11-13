@@ -166,6 +166,20 @@ class TestMap(unittest.TestCase):
             customers=fb.load('customers.csv'),
         )
         fb.run()
+    
+    def test_arg(self):
+        def sizefn(r, ff):
+            r['n'] = len(ff)
+            yield r
+        fb.register(
+            orders1 = fb.map(sizefn, 'orders', arg=fb.read('ff')),
+            orders2 = fb.map(sizefn, 'orders', arg=fb.read('ff'), parallel=True),
+        )
+        fb.run()
+        with fb1._connect('test.db') as c:
+            xs1 = fet(c, 'orders1')
+            self.assertEqual([r['n'] for r in xs1], [960] * len(xs1))
+            self.assertEqual(xs1, fet(c, 'orders2'))
 
     def test_append_yyyy_yyyymm_columns(self):
         def add_yyyy_yyyymm(r):
@@ -730,54 +744,8 @@ class TestLow(unittest.TestCase):
         with fb1._connect('test.db') as c:
             self.assertEqual(len(fet(c, 'sample')), 5)
 
-    def test_read_and_write1(self):
-        initialize()
-        def foo():
-            r = {
-                'a': 10,
-            }
-            with self.assertRaises(fb1.TableDuplication):
-                fb.write([r], 'foo')
-            return [] 
 
-        fb.register(
-            foo = fb.low(foo),
-        )
-        fb.run()
-
-    def test_read_and_write2(self):
-        initialize()
-        r = {
-            'a': 10,
-        }
-
-        def foo():
-            fb.write([r], 'temp1')
-            return {'c': 3}
-
-        fb.register(
-            foo = fb.low(foo),
-        )
-        fb.run()
-
-        with fb1._connect('test.db') as c:
-            self.assertEqual(fet(c, 'temp1'), [r])
-
-        def bar():
-            fb.write(
-                [{'d': 5}], 'temp1'
-            )
-            return {'x': 10} 
-
-        fb.register(
-            bar = fb.low(bar),
-        )
-        fb.run()
-
-        # must be overwritten
-        with fb1._connect('test.db') as c:
-            self.assertEqual(fet(c, 'temp1'), [{'d': 5}])
-
+# read & write not tested
 
 class TestException(unittest.TestCase):
     pass
