@@ -321,18 +321,26 @@ class _Connection:
         return self._cursor.fetchone()['c']
 
 
-def read(tname, cols=None):
-    """Reads a list of rows (the whole table) ordered by cols
+def read(tname):
+    """Reads a file and returns a list of rows 
 
     :param tname: table name
-    :param cols: comma separated string
 
     :returns: a list of rows
     """
-    tname, _ = os.path.splitext(tname.strip())
-    tname = tname + '.xlsx'
+    _, ext = os.path.splitext(tname.strip())
+    # Excel is the default. it's the safest
+    tname =  tname if ext else tname + '.xlsx'
     if os.path.isfile(os.path.join(_CONFIG['ws'], tname)):
-        return list(_read_excel(tname))
+        if ext.lower() == '.csv':
+            return list(_read_csv(tname))
+        elif ext.lower() == '.sas7bdat':
+            return list(_read_sas(tname))
+        elif ext.lower() == ".dta":
+            return list(_read_stata(tname))
+        else:
+            return list(_read_excel(tname))
+
     # This may not be a good idea
     # but it could be cumbersome. 
     return []
@@ -371,10 +379,10 @@ def _flatten(seq):
 
 
 def _applyfn(fn, seq, arg=None):
-    if arg:
-        yield from _flatten(fn(rs, arg) for rs in seq)
-    else:
+    if arg is None:
         yield from _flatten(fn(rs) for rs in seq)
+    else:
+        yield from _flatten(fn(rs, arg) for rs in seq)
 
 
 def _tqdm(seq, total, by):
@@ -470,7 +478,7 @@ def _exec_parallel_map(c, job, max_workers, tsize):
         with _connect(dbfile) as c1:
             n = cut[1] - cut[0]
             seq = _applyfn(job['evaled_fn'], 
-                           _tqdm(c1.fetch(query, by=bys), n, by=bys))
+                           _tqdm(c1.fetch(query, by=bys), n, by=bys), arg)
             try:
                 c1.insert(seq, job['output'])
             except NoRowToInsert:

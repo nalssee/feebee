@@ -511,13 +511,13 @@ class TestParallel(unittest.TestCase):
             self.assertEqual(list(fet(c, 'customers2')), list(fet(c, 'customers2s')))
 
     def test_pmap_with_get(self):
+
         def orders1():
             d = {}
-            for r in fb.read('customers'):
+            for r in fb.read('customers.csv'):
                 d[r['CustomerID']] = r['CustomerName']
-
             def _f(r):
-                r['customer_name'] = d.get(r['customerid'], '')
+                r['customer_name'] = d.get(str(r['customerid']), '')
                 return r
 
             return _f
