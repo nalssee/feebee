@@ -751,7 +751,6 @@ class TestException(unittest.TestCase):
     pass
 
 
-
 # utils
 def nlines_file(name):
     with open(name) as f:

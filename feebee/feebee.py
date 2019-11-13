@@ -875,7 +875,7 @@ def _read_df(df):
     header = [c.strip() for c in df.columns]
     for _, r in df.iterrows():
         yield {k: v for k, v in zip(header, ((str(r[c]) for c in cols)))}
-
+ 
 
 # this could be more complex but should it be?
 def _read_excel(filename):
@@ -898,4 +898,4 @@ def _is_reserved(x):
 
 
 def _is_thunk(fn):
-    return len(signature(fn).parameters) == 0
+    return len(signature(fn).parameters) == 0 
