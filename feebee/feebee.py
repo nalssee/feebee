@@ -321,7 +321,7 @@ class _Connection:
         return self._cursor.fetchone()['c']
 
 
-def read(tname):
+def get(tname):
     """Reads a file and returns a list of rows 
 
     :param tname: table name
@@ -346,23 +346,6 @@ def read(tname):
     return []
 
 
-def write(rs, tname):
-    """Writes a list of rows, actually, OVERWRITES.
-
-    :param rs: list of rows 
-    :param tname: table name
-    """
-    tname, _ = os.path.splitext(tname)
-    tname = tname + '.xlsx'
-    book = Workbook()
-    sheet = book.active
-    header = list(rs[0])
-    sheet.append(header)
-    for r in rs:
-        sheet.append(list(r.values()))
-    book.save(os.path.join(_CONFIG['ws'], tname))
-
-
 def _dict_factory(cursor, row):
     d = {}
     for idx, col in enumerate(cursor.description):
@@ -378,11 +361,10 @@ def _flatten(seq):
             yield from x
 
 
-def _applyfn(fn, seq, arg=None):
-    if arg is None:
-        yield from _flatten(fn(rs) for rs in seq)
-    else:
-        yield from _flatten(fn(rs, arg) for rs in seq)
+def _applyfn(fn, seq):
+    if _is_thunk(fn):
+        fn = fn()
+    yield from _flatten(fn(rs) for rs in seq)
 
 
 def _tqdm(seq, total, by):
@@ -424,28 +406,12 @@ def _execute(c, job):
             logger.info(f"processing {job['cmd']}: {job['output']}")
             seq = c.fetch(f"select * from {job['inputs'][0]}",
                           listify(job['by']))
-            seq1 = _applyfn(job['evaled_fn'], _tqdm(seq, tsize, job['by']), job['arg'])
+            seq1 = _applyfn(job['evaled_fn'], _tqdm(seq, tsize, job['by']))
             c.insert(seq1, job['output'])
 
     # The only place where 'insert' is not used
     elif cmd == 'join':
         c.join(job['args'], job['output'])
-
-    elif cmd == 'low':
-        sqls = []
-        for tbl, cols in job['tables']:
-            if cols:
-                sqls.append(f"""select * from {tbl}
-                                order by {','.join(listify(cols))}""")
-            else:
-                sqls.append(f"select * from {tbl}")
-
-        if sqls:
-            c.insert(tqdm(job['fn'](*(c.fetch(sql) for sql in sqls))),
-                    job['output'])
-        else:
-            # no input tables
-            c.insert(tqdm(job['fn']()), job['output'])
 
 
 def _line_count(fname, encoding, newline):
@@ -472,13 +438,12 @@ def _exec_parallel_map(c, job, max_workers, tsize):
     bys = listify(job['by']) if job['by'] else None
     exe = Pool(len(dbfiles))
 
-    def _proc(dbfile, cut, arg):
+    def _proc(dbfile, cut):
         query = f"""select * from {ttable}
         where _ROWID_ > {cut[0]} and _ROWID_ <= {cut[1]}"""
         with _connect(dbfile) as c1:
             n = cut[1] - cut[0]
-            seq = _applyfn(job['evaled_fn'], 
-                           _tqdm(c1.fetch(query, by=bys), n, by=bys), arg)
+            seq = _applyfn(job['evaled_fn'], _tqdm(c1.fetch(query, by=bys), n, by=bys))
             try:
                 c1.insert(seq, job['output'])
             except NoRowToInsert:
@@ -546,8 +511,7 @@ def _exec_parallel_map(c, job, max_workers, tsize):
             for dbfile in dbfiles[1:]:
                 copyfile(dbfiles[0], dbfile)
 
-            exe.map(_proc, dbfiles, zip([0] + newbreaks, newbreaks), 
-                    [job['arg']] * len(dbfiles))
+            exe.map(_proc, dbfiles, zip([0] + newbreaks, newbreaks))
             _collect_tables(dbfiles)
         finally:
             _delete_dbfiles(dbfiles)
@@ -563,8 +527,7 @@ def _exec_parallel_map(c, job, max_workers, tsize):
             for dbfile in dbfiles[1:]:
                 copyfile(dbfiles[0], dbfile)
 
-            exe.map(_proc, dbfiles, zip([0] + breaks, breaks + [tsize]), 
-                    [job['arg']] * len(dbfiles))
+            exe.map(_proc, dbfiles, zip([0] + breaks, breaks + [tsize]))
             _collect_tables(dbfiles)
         finally:
             _delete_dbfiles(dbfiles)
@@ -580,13 +543,13 @@ def load(file=None, fn=None, delimiter=None, quotechar='"', encoding='utf-8'):
             'inputs': []}
 
 
-def map(fn=None, data=None, by=None, arg=None, parallel=False):
+def map(fn=None, data=None, by=None, req=None, parallel=False):
+    # req: required tables other than 'data'
     return {
         'cmd': 'map',
         'fn': fn,
-        'inputs': [data],
+        'inputs': [data] + listify(req) if req else [data],
         'by': by,
-        'arg': arg,
         'parallel': parallel
     }
 
@@ -600,29 +563,12 @@ def join(*args):
     }
 
 
-def low(fn=None, data=None):
-    """Sometimes you have to load the whole table(s) on memory
-    which can be inefficient.
+def par():
+    pass
 
-    :param fn: function (or generator) that accepts iterator(s) as args
-    :param data: 
-        'tname1, tname2, tname3' 
-        or
-        ['tname1', ('tname2', 'col1, col2'), 'tname3'] 
-        'col1, col2' represents sorting columns
-    """
-    def handle_data(xs):
-        if isinstance(xs, str):
-            return [(x, None) for x in listify(xs)]
-        return [(x, None) if isinstance(x, str) else x for x in xs]
 
-    data = handle_data(data) if data else []
-    return {
-        'cmd': 'low',
-        'fn': fn,
-        'inputs': [tbl for tbl, _ in data],
-        'tables': data
-    }
+def append():
+    pass
 
 
 def register(**kwargs):

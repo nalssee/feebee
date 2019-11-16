@@ -167,20 +167,6 @@ class TestMap(unittest.TestCase):
         )
         fb.run()
     
-    def test_arg(self):
-        def sizefn(r, ff):
-            r['n'] = len(ff)
-            yield r
-        fb.register(
-            orders1 = fb.map(sizefn, 'orders', arg=fb.read('ff')),
-            orders2 = fb.map(sizefn, 'orders', arg=fb.read('ff'), parallel=True),
-        )
-        fb.run()
-        with fb1._connect('test.db') as c:
-            xs1 = fet(c, 'orders1')
-            self.assertEqual([r['n'] for r in xs1], [960] * len(xs1))
-            self.assertEqual(xs1, fet(c, 'orders2'))
-
     def test_append_yyyy_yyyymm_columns(self):
         def add_yyyy_yyyymm(r):
             if r['orderdate'] > '1996-xx-xx':
@@ -510,32 +496,32 @@ class TestParallel(unittest.TestCase):
             self.assertEqual(list(fet(c, 'customers1')), list(fet(c, 'customers1s')))
             self.assertEqual(list(fet(c, 'customers2')), list(fet(c, 'customers2s')))
 
-    def test_pmap_with_get(self):
+    # def test_pmap_with_get(self):
 
-        def orders1():
-            d = {}
-            for r in fb.read('customers.csv'):
-                d[r['CustomerID']] = r['CustomerName']
-            def _f(r):
-                r['customer_name'] = d.get(str(r['customerid']), '')
-                return r
+    #     def orders1():
+    #         d = {}
+    #         for r in fb.read('customers.csv'):
+    #             d[r['CustomerID']] = r['CustomerName']
+    #         def _f(r):
+    #             r['customer_name'] = d.get(str(r['customerid']), '')
+    #             return r
 
-            return _f
+    #         return _f
 
-        fb.register(
-            customers=fb.load('customers.csv'),
-            orders=fb.load('orders.csv'),
-            orders1=fb.map(orders1, 'orders'),
-            orders2=fb.map(orders1, 'orders', parallel=True),
-        )
+    #     fb.register(
+    #         customers=fb.load('customers.csv'),
+    #         orders=fb.load('orders.csv'),
+    #         orders1=fb.map(orders1, 'orders'),
+    #         orders2=fb.map(orders1, 'orders', parallel=True),
+    #     )
 
-        fb.run()
+    #     fb.run()
 
-        with fb1._connect('test.db') as c:
-            names1 = [r['customer_name'] for r in fet(c, 'orders1') if r['customer_name']]
-            names2 = [r['customer_name'] for r in fet(c, 'orders2') if r['customer_name']]
-            self.assertEqual(len(names1), len(fet(c, 'orders')))
-            self.assertEqual(names1, names2)
+    #     with fb1._connect('test.db') as c:
+    #         names1 = [r['customer_name'] for r in fet(c, 'orders1') if r['customer_name']]
+    #         names2 = [r['customer_name'] for r in fet(c, 'orders2') if r['customer_name']]
+    #         self.assertEqual(len(names1), len(fet(c, 'orders')))
+    #         self.assertEqual(names1, names2)
 
     def tearDown(self):
         remdb()
@@ -611,138 +597,6 @@ class TestRun(unittest.TestCase):
             self.assertEqual(fet(c, 'orders_sample'), fet(c, 'foo'))
         if os.path.exists('orders_sample.xlsx'):
             os.remove('orders_sample.xlsx')
-
-
-class TestLow(unittest.TestCase):
-    def test_low1(self):
-        # you can do much more complex joining jobs than this using low
-        initialize()
-
-        def join1(seq1, seq2):
-            seq1 = groupby(seq1, key=lambda r: r['cust_id'])
-            seq2 = groupby(seq2, key=lambda r: r['cust_id'])
-            # full join
-            for rs1, rs2 in step(seq1, seq2):
-                if rs1 and rs2:
-                    for r1 in rs1:
-                        for r2 in rs2:
-                            r1['cust_name'] = r2['cust_name']
-                            yield r1
-
-                if not rs1:
-                    for r2 in rs2:
-                        yield {
-                            'order_num': '',
-                            'order_date': '',
-                            'cust_id': rs2[0]['cust_id'],
-                            'cust_name': rs2[0]['cust_name'],
-                        }
-
-                if not rs2:
-                    for r1 in rs1:
-                        r1['cust_name'] = ''
-                        yield r1
-
-        fb.register(
-            tysql_Orders=fb.load('tysql_Orders.csv'),
-            tysql_Customers=fb.load('tysql_Customers.csv'),
-            tysql_Orders1=fb.low(join1, [('tysql_Orders', 'cust_id'),
-                                         ('tysql_Customers', 'cust_id')]),
-        )
-
-        fb.run()
-        with fb1._connect('test.db') as c:
-            result = []
-            for r in fet(c, 'tysql_Orders1'):
-                result.append(r['cust_id'])
-            self.assertEqual(result, [1000000001, 1000000001, 1000000002, 1000000003, 1000000004, 1000000005])
-
-    def test_low2(self):
-        # you can do much more complex joining jobs than this using low
-        initialize()
-
-        def join1(seq1, seq2):
-            seq1 = groupby(seq1, key=lambda r: r['cust_state'])
-            seq2 = groupby(seq2, key=lambda r: r['vend_state'])
-
-            for rs1, rs2 in step(seq1, seq2):
-
-                if rs1 and rs2:
-                    for r1 in rs1:
-                        for r2 in rs2:
-                            r1['vend_name'] = r2['vend_name']
-                            yield r1
-
-                if not rs1:
-                    # do nothing
-                    pass
-
-                if not rs2:
-                    for r1 in rs1:
-                        r1['vend_name'] = ''
-                        yield r1
-
-        fb.register(
-            tysql_Customers=fb.load('tysql_Customers.csv'),
-            tysql_Vendors=fb.load('tysql_Vendors.csv'),
-            tysql_Customers1=fb.low(join1, [('tysql_Customers', 'cust_state'),
-                                             ('tysql_Vendors', 'vend_state')]),
-
-        )
-
-        fb.run()
-
-        with fb1._connect('test.db') as c:
-            vendors = []
-            for r in fet(c, 'tysql_Customers1'):
-                vendors.append(r['vend_name'])
-            self.assertEqual(vendors, ['', '', '', 'Bears R Us', 'Bear Emporium'])
-
-    # no order cols
-    def test_low3(self):
-        def firstN(n):
-            def fn(seq):
-                for _ in range(n):
-                    yield next(seq)
-            return fn
-
-        initialize()
-        fb.register(
-            products=fb.load('products.csv'),
-            first3=fb.low(firstN(3), [('products', '')]),
-            first5=fb.low(firstN(5), [('products', None)]),
-        )
-        fb.run()
-
-        with fb1._connect('test.db') as c:
-            self.assertEqual(len(fet(c, 'first3')), 3)
-            self.assertEqual(len(fet(c, 'first5')), 5)
-
-    def test_low4(self):
-        initialize()
-        fb.register(
-            products=fb.load('products.csv'),
-            sample=fb.low(head(5), [('products', None)]),
-        )
-        fb.run()
-
-        with fb1._connect('test.db') as c:
-            self.assertEqual(len(fet(c, 'sample')), 5)
-
-    def test_low5(self):
-        "You don't have to pass tables as args"
-        def sample():
-            for i in range(5):
-                yield {'a': i}
-            
-        initialize()
-        fb.register(
-            sample=fb.low(sample),
-        )
-        fb.run()
-
-        with fb1._connect('test.db') as c:
-            self.assertEqual(len(fet(c, 'sample')), 5)
 
 
 # read & write not tested
