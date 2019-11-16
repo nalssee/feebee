@@ -59,52 +59,6 @@ def lag(cols, datecol, ns, add1fn=None, max_missings=10_000):
     return fn
 
 
-# You should be very careful if you want to update this generator
-def step(*grouped_seqs):
-    """ Generates tuples of lists of rows for every matching keys 
-    """
-    Empty = object()
-    NoMore = object()
-    EmptyVal = []
-
-    keys = [Empty] * len(grouped_seqs)
-    vals = [EmptyVal] * len(grouped_seqs)
-
-    def update(i, gs):
-        try:
-            k, rs = next(gs)
-            keys[i] = k or Empty
-            vals[i] = list(rs)
-        except StopIteration:
-            keys[i] = NoMore
-            vals[i] = EmptyVal
-
-    for i, gs in enumerate(grouped_seqs):
-        update(i, gs)
-
-    while not all(k is NoMore for k in keys):
-        try:
-            minkey = min(k for k in keys if k is not NoMore)
-        except TypeError as e:
-            # remove empty ones
-            if Empty in keys:
-                minkey = Empty
-            else:
-                # 'abc' < 3
-                raise e
-
-        result1 = []
-        for i, (truth, k, v, g) in\
-                enumerate(zip((k == minkey for k in keys), keys,
-                              vals, grouped_seqs)):
-            if truth:
-                update(i, g)
-                result1.append(v)
-            else:
-                result1.append(EmptyVal)
-        yield result1
-
-
 def where(pred, fn=None):
     """ Filter with pred before you apply fn to a list of rows.
         if fn is not given, simply filter with pred
@@ -155,7 +109,7 @@ def getX(rs, cols, constant=False):
     if constant is True, X with a constant(1) column.
 
     :param rs: list of rows
-    :param cols: comma separated str for columns to be selected 
+    :param cols: comma separated str for columns to be selected
     :param constant: True or False
 
     :returns: list of lists (matrix X)
@@ -173,7 +127,7 @@ def getX(rs, cols, constant=False):
 def gety(rs, col):
     """ Returns a list of numbers (matrix X) for linear regression
 
-    :param rs: a list of 
+    :param rs: a list of
     """
     return [r[col] for r in rs]
 
@@ -315,7 +269,8 @@ def readxl(fname, sheets=None, encoding='utf-8', delimiter=None,
     else:
         # openpyxl does not work with the old ".xls" format
         def getval(cell):
-            if cell.ctype == xlrd.XL_CELL_EMPTY or cell.ctype == xlrd.XL_CELL_TEXT:
+            if cell.ctype == xlrd.XL_CELL_EMPTY or\
+               cell.ctype == xlrd.XL_CELL_TEXT:
                 return cell.value.strip()
             elif cell.value.is_integer():
                 return int(cell.value)
@@ -328,13 +283,14 @@ def readxl(fname, sheets=None, encoding='utf-8', delimiter=None,
             sheets = [sheet.name for sheet in workbook.sheets()]
         if by_sheet:
             for sheet in sheets:
-                lines = ([getval(c) for c in r] for r in workbook.sheet_by_name(sheet).get_rows()) 
+                lines = ([getval(c) for c in r]
+                         for r in workbook.sheet_by_name(sheet).get_rows())
                 yield (sheet, lines)
         else:
             for sheet in sheets:
                 for row in workbook.sheet_by_name(sheet).get_rows():
                     yield [getval(c) for c in row]
-                
+
 
 # implicit ordering
 def group(rs, key):
@@ -354,12 +310,12 @@ def overlap(rs, size, step=1, key=None):
 def avg(rs, col, wcol=None, ndigits=None):
     """ Returns the average value of the given column.
 
-    :param rs: a list of rows 
+    :param rs: a list of rows
     :param col: str (column name)
     :param wcol: str (column for weighted average)
     :param ndigits: int (number of digits to the right of the decimal point)
 
-    :returns: a float 
+    :returns: a float
     """
     if wcol:
         xs = [r for r in rs if isnum(r[col], r[wcol])]

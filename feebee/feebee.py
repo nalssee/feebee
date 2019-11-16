@@ -42,7 +42,7 @@ _GRAPH_NAME = _filename + '.gv'
 _JOBS = {}
 # folder name (in workspace) for temporary databases for parallel work
 _TEMP = "_temp"
-_CONN = [None] 
+_CONN = [None]
 # sqlite3 keywords
 _RESERVED_KEYWORDS = {
     "ABORT", "ACTION", "ADD", "AFTER", "ALL", "ALTER", "ANALYZE", "AND", "AS",
@@ -65,6 +65,7 @@ _RESERVED_KEYWORDS = {
     "UPDATE", "USING", "VACUUM", "VALUES", "VIEW", "VIRTUAL", "WHEN", "WHERE",
     "WINDOW", "WITH", "WITHOUT"
 }
+
 
 coloredlogs.DEFAULT_FIELD_STYLES['levelname']['color'] = 'cyan'
 coloredlogs.install(
@@ -195,7 +196,7 @@ class _Connection:
             self._cursor.executemany(istmt, rs)
         except sqlite3.OperationalError:
             raise InvalidColumns(cols)
-    
+
     def load(self, filename, name, delimiter=None, quotechar='"',
              encoding='utf-8', newline="\n", fn=None):
         total = None
@@ -296,7 +297,7 @@ class _Connection:
             if ext.lower() == '.xlsx':
                 rs = self.fetch(f'select * from {table}')
                 book = Workbook()
-                sheet = book.active 
+                sheet = book.active
                 r0, rs = spy(rs)
                 header = list(r0[0])
                 sheet.append(header)
@@ -316,7 +317,7 @@ class _Connection:
                     writer.writeheader()
                     for r in rs:
                         writer.writerow(r)
-                
+
     def _cols(self, query):
         return [c[0] for c in self._cursor.execute(query).description]
 
@@ -324,7 +325,7 @@ class _Connection:
         self._cursor.execute(f"select count(*) as c from {table}")
         return self._cursor.fetchone()['c']
 
-        
+
 def get(tname, cols=None):
     """Get a list of rows (the whole table) ordered by cols
     :param tname: table name
@@ -335,7 +336,7 @@ def get(tname, cols=None):
     c = _CONN[0]
     if tname in c.get_tables():
         if cols:
-            seq = c.fetch(f"""select * from {tname} 
+            seq = c.fetch(f"""select * from {tname}
                               order by {','.join(listify(cols))}""")
         else:
             seq = c.fetch(f"select * from {tname}")
@@ -360,8 +361,6 @@ def _flatten(seq):
 
 
 def _applyfn(fn, seq):
-    if _is_thunk(fn):
-        fn = fn()
     yield from _flatten(fn(rs) for rs in seq)
 
 
@@ -411,13 +410,23 @@ def _execute(c, job):
     elif cmd == 'join':
         c.join(job['args'], job['output'])
 
+    elif cmd == 'par':
+        tsize = c._size(job['inputs'][0])
+        gseqs = [groupby(c.fetch(f"""select * from {table}
+                                     order by {', '.join(listify(cols))}"""),
+                         _build_keyfn(cols))
+                 for table, cols in job['data']]
+        fn = job['fn']() if _is_thunk(job['fn']) else job['fn']
+        seq = _flatten(fn(*xs) for xs in
+                       tqdm(_step(gseqs, stop_short=job['stop_short'])))
+        c.insert(seq, job['output'])
+
     elif cmd == 'append':
         def gen():
             for inp in job['inputs']:
                 for r in c.fetch(f"select * from {inp}"):
                     yield r
-        c.insert(gen(), job['output'])
-
+        c.insert(tqdm(gen()), job['output'])
 
 
 def _line_count(fname, encoding, newline):
@@ -449,7 +458,8 @@ def _exec_parallel_map(c, job, max_workers, tsize):
         where _ROWID_ > {cut[0]} and _ROWID_ <= {cut[1]}"""
         with _connect(dbfile) as c1:
             n = cut[1] - cut[0]
-            seq = _applyfn(job['evaled_fn'], _tqdm(c1.fetch(query, by=bys), n, by=bys))
+            seq = _applyfn(job['evaled_fn'],
+                           _tqdm(c1.fetch(query, by=bys), n, by=bys))
             try:
                 c1.insert(seq, job['output'])
             except NoRowToInsert:
@@ -565,12 +575,18 @@ def join(*args):
     return {
         'cmd': 'join',
         'inputs': inputs,
-        'args': args
+        'args': args,
     }
 
 
-def par():
-    pass
+def par(fn, data=None, stop_short=False):
+    return {
+        'cmd': 'par',
+        'fn': fn,
+        'inputs': [table for table, _ in data],
+        'data': data,
+        'stop_short': stop_short,
+    }
 
 
 def append(inputs):
@@ -578,7 +594,6 @@ def append(inputs):
         'cmd': 'append',
         'inputs': listify(inputs)
     }
-
 
 
 def register(**kwargs):
@@ -753,14 +768,17 @@ def _run():
                         _execute(c, job)
 
                     except Exception as e:
-                       
+
                         if isinstance(e, NoRowToInsert):
                             # Many times you want it to be silenced
-                            # because you want to test it before actually write the code
-                            logger.warning(f"No row to insert: {job['output']}")
+                            # because you want to test it before actually
+                            # write the code
+                            logger.warning(
+                                f"No row to insert: {job['output']}")
                         else:
                             logger.error(f"Failed: {job['output']}")
-                            logger.error(f"{type(e).__name__}: {e}", exc_info=True)
+                            logger.error(f"{type(e).__name__}: {e}",
+                                         exc_info=True)
 
                         try:
                             c.drop(job['output'])
@@ -839,7 +857,7 @@ def _read_df(df):
     header = [c.strip() for c in df.columns]
     for _, r in df.iterrows():
         yield {k: v for k, v in zip(header, ((str(r[c]) for c in cols)))}
- 
+
 
 # this could be more complex but should it be?
 def _read_excel(filename):
@@ -857,9 +875,62 @@ def _read_stata(filename):
         yield from _read_df(xs)
 
 
+# You should be very careful if you want to update this generator
+def _step(grouped_seqs, stop_short=False):
+    """ Generates tuples of lists of rows for every matching keys
+    """
+    Empty = object()
+    NoMore = object()
+    EmptyVal = []
+
+    keys = [Empty] * len(grouped_seqs)
+    vals = [EmptyVal] * len(grouped_seqs)
+
+    def update(i, gs):
+        try:
+            k, rs = next(gs)
+            keys[i] = k or Empty
+            vals[i] = list(rs)
+        except StopIteration:
+            keys[i] = NoMore
+            vals[i] = EmptyVal
+
+    for i, gs in enumerate(grouped_seqs):
+        update(i, gs)
+
+    # Dont worry about function call overhead for thunks.
+    # Function call overhead is mostly due to arg type checking
+    if stop_short:
+        def continuation_condition(): return all(k is not NoMore for k in keys)
+    else:
+        def continuation_condition(): return not all(k is NoMore for k in keys)
+
+    while continuation_condition():
+        try:
+            minkey = min(k for k in keys if k is not NoMore)
+        except TypeError as e:
+            # remove empty ones
+            if Empty in keys:
+                minkey = Empty
+            else:
+                # 'abc' < 3
+                raise e
+
+        result1 = []
+        for i, (truth, k, v, g) in\
+                enumerate(zip((k == minkey for k in keys), keys,
+                              vals, grouped_seqs)):
+            if truth:
+                update(i, g)
+                result1.append(v)
+            else:
+                result1.append(EmptyVal)
+        yield result1
+
+
 def _is_reserved(x):
     return x.upper() in _RESERVED_KEYWORDS
 
 
 def _is_thunk(fn):
-    return len(signature(fn).parameters) == 0 
+    return len(signature(fn).parameters) == 0

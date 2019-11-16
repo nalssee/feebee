@@ -2,7 +2,6 @@ import os
 import sys
 import unittest
 import sqlite3
-from itertools import groupby
 
 TESTPATH = os.path.dirname(os.path.realpath(__file__))
 PYPATH = os.path.join(TESTPATH, '..', '..')
@@ -11,7 +10,6 @@ sys.path.append(PYPATH)
 import feebee as fb
 # only for testing
 import feebee.feebee as fb1
-from feebee.util import step, head
 
 # customers.csv
 # CustomerID,CustomerName,ContactName,Address,City,PostalCode,Country
@@ -148,7 +146,7 @@ class TestNone(unittest.TestCase):
 
         with fb1._connect('test.db') as c:
             self.assertEqual(len([r for r in fet(c, 'vendors') if r['vend_state'] == '  ']), 1)
-            self.assertEqual(len([r for r in fet(c, 'vendors') if r['vend_state'] is '']), 1)
+            self.assertEqual(len([r for r in fet(c, 'vendors') if r['vend_state'] == '']), 1)
             # '' is falsy but '  ' is not
             self.assertEqual(len([r for r in fet(c, 'vendors1') if r['vend_state'] is None]), 1)
             self.assertEqual(len([r for r in fet(c, 'vendors2') if r['vend_state'] is None]), 0)
@@ -466,6 +464,46 @@ class TestAppend(unittest.TestCase):
 
         with fb1._connect('test.db') as c:
             self.assertEqual(len(list(fet(c, 'orders'))) * 2, len(list(fet(c, 'orders2'))))
+
+    def tearDown(self):
+        remdb()
+
+
+class TestPar(unittest.TestCase):
+    def setUp(self):
+        initialize()
+        fb.register(
+            order_items = fb.load('tysql_OrderItems.csv'),
+            products = fb.load('tysql_Products.csv'),
+        )
+        fb.run()
+        
+    def test_par1(self):
+        def itemsfn():
+            allproducts = fb.get('products')
+            def _f(items, products):
+                if items:
+                    for item in items:
+                        r = {'order_num': item['order_num']}
+                        r['n']  = len(allproducts)
+                        r['prod_desc'] = ''
+                        if products:
+                            r['prod_desc'] = products[0]['prod_desc']
+                        yield r 
+                else:
+                    yield {'order_num': '', 'n': len(allproducts), 'prod_desc': 'Empty'}
+
+            return _f 
+
+        fb.register(
+            items1 = fb.par(itemsfn, [('order_items', 'prod_id'), ('products', 'prod_id')]),
+            items2 = fb.par(itemsfn, [('order_items', 'prod_id'), ('products', 'prod_id')], stop_short=True)
+        )
+        fb.run()
+
+        with fb1._connect('test.db') as c:
+            self.assertEqual(len(fet(c, 'items1')), len(fet(c, 'items2')) + 2) 
+
 
     def tearDown(self):
         remdb()
