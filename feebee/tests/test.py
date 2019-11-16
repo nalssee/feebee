@@ -166,7 +166,27 @@ class TestMap(unittest.TestCase):
             customers=fb.load('customers.csv'),
         )
         fb.run()
-    
+
+    def test_thunk(self):
+        def count():
+            customers = fb.get('customers')
+            def _f(r):
+                r['num'] = len(customers)
+                return r
+            return _f
+
+        fb.register(
+            orders1 = fb.map(count, 'orders', req='customers'),
+            orders2 = fb.map(count, 'orders', req='customers', parallel=True),
+        )
+        fb.run()
+        with fb1._connect('test.db') as c:
+            orders1 = fet(c, 'orders1')
+            orders2 = fet(c, 'orders2')
+            self.assertEqual([r['num'] for r in orders1], [91] * len(orders1))
+            self.assertEqual(orders1, orders2)
+
+
     def test_append_yyyy_yyyymm_columns(self):
         def add_yyyy_yyyymm(r):
             if r['orderdate'] > '1996-xx-xx':
@@ -425,6 +445,27 @@ class TestIntegratedProcess(unittest.TestCase):
                 if isinstance(r['avg'], float) or isinstance(r['avg'], int):
                     xs.append(xs)
             self.assertEqual(len(xs), 9)
+
+    def tearDown(self):
+        remdb()
+
+
+class TestAppend(unittest.TestCase):
+    def setUp(self):
+        initialize()
+
+    def test_simple_union(self):
+        fb.register(
+            orders = fb.load('orders.csv'),
+            orders1=fb.map(lambda r: r, 'orders'),
+            orders2=fb.append('orders, orders1'),
+            # the following is also fine
+            # orders2=fb.append(['orders', 'orders1'])
+        )
+        fb.run()
+
+        with fb1._connect('test.db') as c:
+            self.assertEqual(len(list(fet(c, 'orders'))) * 2, len(list(fet(c, 'orders2'))))
 
     def tearDown(self):
         remdb()

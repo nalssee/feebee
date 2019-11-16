@@ -109,6 +109,10 @@ class TableDuplication(FeebeeError):
     pass
 
 
+class NoSuchTableFound(FeebeeError):
+    pass
+
+
 @contextmanager
 def _connect(dbfile):
     conn = _Connection(dbfile)
@@ -320,30 +324,24 @@ class _Connection:
         self._cursor.execute(f"select count(*) as c from {table}")
         return self._cursor.fetchone()['c']
 
-
-def get(tname):
-    """Reads a file and returns a list of rows 
-
+        
+def get(tname, cols=None):
+    """Get a list of rows (the whole table) ordered by cols
     :param tname: table name
-
+    :param cols: comma separated string
     :returns: a list of rows
     """
-    _, ext = os.path.splitext(tname.strip())
-    # Excel is the default. it's the safest
-    tname =  tname if ext else tname + '.xlsx'
-    if os.path.isfile(os.path.join(_CONFIG['ws'], tname)):
-        if ext.lower() == '.csv':
-            return list(_read_csv(tname))
-        elif ext.lower() == '.sas7bdat':
-            return list(_read_sas(tname))
-        elif ext.lower() == ".dta":
-            return list(_read_stata(tname))
+    tname = tname.strip()
+    c = _CONN[0]
+    if tname in c.get_tables():
+        if cols:
+            seq = c.fetch(f"""select * from {tname} 
+                              order by {','.join(listify(cols))}""")
         else:
-            return list(_read_excel(tname))
-
-    # This may not be a good idea
-    # but it could be cumbersome. 
-    return []
+            seq = c.fetch(f"select * from {tname}")
+        return list(seq)
+    else:
+        raise NoSuchTableFound(tname)
 
 
 def _dict_factory(cursor, row):
@@ -412,6 +410,14 @@ def _execute(c, job):
     # The only place where 'insert' is not used
     elif cmd == 'join':
         c.join(job['args'], job['output'])
+
+    elif cmd == 'append':
+        def gen():
+            for inp in job['inputs']:
+                for r in c.fetch(f"select * from {inp}"):
+                    yield r
+        c.insert(gen(), job['output'])
+
 
 
 def _line_count(fname, encoding, newline):
@@ -567,8 +573,12 @@ def par():
     pass
 
 
-def append():
-    pass
+def append(inputs):
+    return {
+        'cmd': 'append',
+        'inputs': listify(inputs)
+    }
+
 
 
 def register(**kwargs):
