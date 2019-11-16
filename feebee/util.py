@@ -59,6 +59,59 @@ def lag(cols, datecol, ns, add1fn=None, max_missings=10_000):
     return fn
 
 
+# You should be very careful if you want to update this generator
+def step(grouped_seqs, stop_short=False):
+    """ Generates tuples of lists of rows for every matching keys
+    """
+    Empty = object()
+    NoMore = object()
+    EmptyVal = []
+
+    keys = [Empty] * len(grouped_seqs)
+    vals = [EmptyVal] * len(grouped_seqs)
+
+    def update(i, gs):
+        try:
+            k, rs = next(gs)
+            keys[i] = k or Empty
+            vals[i] = list(rs)
+        except StopIteration:
+            keys[i] = NoMore
+            vals[i] = EmptyVal
+
+    for i, gs in enumerate(grouped_seqs):
+        update(i, gs)
+
+    # Dont worry about function call overhead for thunks.
+    # Function call overhead is mostly due to arg type checking
+    if stop_short:
+        def continuation_condition(): return all(k is not NoMore for k in keys)
+    else:
+        def continuation_condition(): return not all(k is NoMore for k in keys)
+
+    while continuation_condition():
+        try:
+            minkey = min(k for k in keys if k is not NoMore)
+        except TypeError as e:
+            # remove empty ones
+            if Empty in keys:
+                minkey = Empty
+            else:
+                # 'abc' < 3
+                raise e
+
+        result1 = []
+        for i, (truth, k, v, g) in\
+                enumerate(zip((k == minkey for k in keys), keys,
+                              vals, grouped_seqs)):
+            if truth:
+                update(i, g)
+                result1.append(v)
+            else:
+                result1.append(EmptyVal)
+        yield result1
+
+
 def where(pred, fn=None):
     """ Filter with pred before you apply fn to a list of rows.
         if fn is not given, simply filter with pred

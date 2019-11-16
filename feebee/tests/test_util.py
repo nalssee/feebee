@@ -4,6 +4,7 @@ import unittest
 from random import shuffle
 import statsmodels.api as sm
 import numpy as np
+from itertools import groupby
 from more_itertools import grouper
 
 TESTPATH = os.path.dirname(os.path.realpath(__file__))
@@ -12,7 +13,7 @@ sys.path.append(PYPATH)
 
 import feebee as fb
 from feebee.util import chunk, lag, add_date, isnum, readxl, listify,\
-    avg, group, where, overlap, set_default, allnum, getX, gety
+    avg, group, where, overlap, set_default, allnum, getX, gety, step
 
 # only for testing
 import feebee.feebee as fb1
@@ -266,7 +267,7 @@ class TestEmAll(unittest.TestCase):
                     next(rs)
                 self.assertEqual(next(rs)[1], 13290693)
 
-    # xls file reading   
+    # xls file reading
     def test_readxl3(self):
         self.assertEqual(len(list(readxl('ff.xls'))), 961)
 
@@ -427,6 +428,30 @@ class TestEmAll(unittest.TestCase):
         self.assertEqual(len(allnum(rs, 'a, b')), 1)
         self.assertEqual(len(allnum(rs, 'a')), 2)
         self.assertEqual(len(allnum(rs, 'b')), 2)
+
+    def test_step(self):
+        rs1 = [
+            {'a': 10},
+            {'a': -3},
+            {'a': 12},
+        ]
+
+        rs2 = [
+            {'a': 12},
+            {'a': 3},
+            {'a': 30},
+            {'a': 10},
+        ]
+
+        key1 = lambda r: r['a']
+        rs1.sort(key=key1)
+        rs2.sort(key=key1)
+        rs1 = groupby(rs1, key1)
+        rs2 = groupby(rs2, key1)
+        result = []
+        for a, b in step([rs1, rs2]):
+            result.append((a[0]['a'] if a else None, b[0]['a'] if b else None))
+        self.assertEqual(result, [(-3, None), (None, 3), (10, 10), (12, 12), (None, 30)])
 
     def tearDown(self):
         remdb()
