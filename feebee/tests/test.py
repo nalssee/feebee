@@ -477,8 +477,8 @@ class TestPar(unittest.TestCase):
             products = fb.load('tysql_Products.csv'),
         )
         fb.run()
-        
-    def test_par1(self):
+
+    def test_zip1(self):
         def itemsfn():
             allproducts = fb.get('products')
             def _f(items, products):
@@ -489,20 +489,20 @@ class TestPar(unittest.TestCase):
                         r['prod_desc'] = ''
                         if products:
                             r['prod_desc'] = products[0]['prod_desc']
-                        yield r 
+                        yield r
                 else:
                     yield {'order_num': '', 'n': len(allproducts), 'prod_desc': 'Empty'}
 
-            return _f 
+            return _f
 
         fb.register(
-            items1 = fb.par(itemsfn, [('order_items', 'prod_id'), ('products', 'prod_id')]),
-            items2 = fb.par(itemsfn, [('order_items', 'prod_id'), ('products', 'prod_id')], stop_short=True)
+            items1 = fb.zip(itemsfn, [('order_items', 'prod_id'), ('products', 'prod_id')]),
+            items2 = fb.zip(itemsfn, [('order_items', 'prod_id'), ('products', 'prod_id')], stop_short=True)
         )
         fb.run()
 
         with fb1._connect('test.db') as c:
-            self.assertEqual(len(fet(c, 'items1')), len(fet(c, 'items2')) + 2) 
+            self.assertEqual(len(fet(c, 'items1')), len(fet(c, 'items2')) + 2)
 
 
     def tearDown(self):

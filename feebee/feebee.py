@@ -410,7 +410,7 @@ def _execute(c, job):
     elif cmd == 'join':
         c.join(job['args'], job['output'])
 
-    elif cmd == 'par':
+    elif cmd == 'zip':
         tsize = c._size(job['inputs'][0])
         gseqs = [groupby(c.fetch(f"""select * from {table}
                                      order by {', '.join(listify(cols))}"""),
@@ -579,9 +579,9 @@ def join(*args):
     }
 
 
-def par(fn, data=None, stop_short=False):
+def zip(fn, data=None, stop_short=False):
     return {
-        'cmd': 'par',
+        'cmd': 'zip',
         'fn': fn,
         'inputs': [table for table, _ in data],
         'data': data,
