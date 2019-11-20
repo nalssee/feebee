@@ -384,7 +384,7 @@ def _execute(c, job):
                quotechar=job['quotechar'], encoding=job['encoding'],
                fn=job['fn'])
 
-    elif cmd == 'map':
+    elif cmd == 'cast':
         tsize = c._size(job['inputs'][0])
         job['evaled_fn'] = job['fn']() if _is_thunk(job['fn']) else job['fn']
 
@@ -398,7 +398,7 @@ def _execute(c, job):
             logger.info(
                 f"processing {job['cmd']}: {job['output']}"
                 f" (multiprocessing: {max_workers})")
-            _exec_parallel_map(c, job, max_workers, tsize)
+            _exec_parallel_cast(c, job, max_workers, tsize)
         else:
             logger.info(f"processing {job['cmd']}: {job['output']}")
             seq = c.fetch(f"select * from {job['inputs'][0]}",
@@ -410,7 +410,7 @@ def _execute(c, job):
     elif cmd == 'join':
         c.join(job['args'], job['output'])
 
-    elif cmd == 'zip':
+    elif cmd == 'rail':
         tsize = c._size(job['inputs'][0])
         gseqs = [groupby(c.fetch(f"""select * from {table}
                                      order by {', '.join(listify(cols))}"""),
@@ -421,7 +421,7 @@ def _execute(c, job):
                        tqdm(step(gseqs, stop_short=job['stop_short'])))
         c.insert(seq, job['output'])
 
-    elif cmd == 'append':
+    elif cmd == 'glue':
         def gen():
             for inp in job['inputs']:
                 for r in c.fetch(f"select * from {inp}"):
@@ -438,7 +438,7 @@ def _line_count(fname, encoding, newline):
 
 
 # sqlite3 in osx can't handle multiple connections properly.
-def _exec_parallel_map(c, job, max_workers, tsize):
+def _exec_parallel_cast(c, job, max_workers, tsize):
     itable = job['inputs'][0]
     tdir = os.path.join(_CONFIG['ws'], _TEMP)
     if not os.path.exists(tdir):
@@ -559,10 +559,10 @@ def load(file=None, fn=None, delimiter=None, quotechar='"', encoding='utf-8'):
             'inputs': []}
 
 
-def map(fn=None, data=None, by=None, req=None, parallel=False):
+def cast(fn=None, data=None, by=None, req=None, parallel=False):
     # req: required tables other than 'data'
     return {
-        'cmd': 'map',
+        'cmd': 'cast',
         'fn': fn,
         'inputs': [data] + listify(req) if req else [data],
         'by': by,
@@ -579,9 +579,9 @@ def join(*args):
     }
 
 
-def zip(fn, data=None, stop_short=False):
+def rail(fn, data=None, stop_short=False):
     return {
-        'cmd': 'zip',
+        'cmd': 'rail',
         'fn': fn,
         'inputs': [table for table, _ in data],
         'data': data,
@@ -589,9 +589,9 @@ def zip(fn, data=None, stop_short=False):
     }
 
 
-def append(inputs):
+def glue(inputs):
     return {
-        'cmd': 'append',
+        'cmd': 'glue',
         'inputs': listify(inputs)
     }
 
@@ -606,7 +606,7 @@ def register(**kwargs):
 
         fb.register(
             table_name = fb.load('sample.csv'),
-            table_name1 = fb.map(simple_process, 'table_name'),
+            table_name1 = fb.cast(simple_process, 'table_name'),
         )
 
         fb.run()
@@ -762,7 +762,7 @@ def _run():
             for i, job in enumerate(jobs_to_do):
                 if is_doable(job):
                     try:
-                        if job['cmd'] != 'map':
+                        if job['cmd'] != 'cast':
                             logger.info(
                                 f"processing {job['cmd']}: {job['output']}")
                         _execute(c, job)

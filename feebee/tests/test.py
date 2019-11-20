@@ -139,8 +139,8 @@ class TestNone(unittest.TestCase):
             return r
 
         fb.register(
-            vendors1=fb.map(input_none, 'vendors'),
-            vendors2=fb.map(input_none1, 'vendors'),
+            vendors1=fb.cast(input_none, 'vendors'),
+            vendors2=fb.cast(input_none1, 'vendors'),
         )
         fb.run()
 
@@ -156,7 +156,7 @@ class TestNone(unittest.TestCase):
             os.remove('test.db')
 
 
-class TestMap(unittest.TestCase):
+class TestCast(unittest.TestCase):
     def setUp(self):
         initialize()
         fb.register(
@@ -174,8 +174,8 @@ class TestMap(unittest.TestCase):
             return _f
 
         fb.register(
-            orders1 = fb.map(count, 'orders', req='customers'),
-            orders2 = fb.map(count, 'orders', req='customers', parallel=True),
+            orders1 = fb.cast(count, 'orders', req='customers'),
+            orders2 = fb.cast(count, 'orders', req='customers', parallel=True),
         )
         fb.run()
         with fb1._connect('test.db') as c:
@@ -193,7 +193,7 @@ class TestMap(unittest.TestCase):
                 yield r
 
         fb.register(
-            orders1=fb.map(add_yyyy_yyyymm, 'orders'),
+            orders1=fb.cast(add_yyyy_yyyymm, 'orders'),
         )
         fb.run()
         with fb1._connect('test.db') as c:
@@ -220,8 +220,8 @@ class TestMap(unittest.TestCase):
             # you can either pass a function that returns
             # a dictionary (row) or  a list of dictionaries
             # or pass a generator that yields dictionaries
-            customers1=fb.map(bigmarket(5), 'customers', by='Country'),
-            customers2=fb.map(bigmarket1(5), 'customers', by='Country')
+            customers1=fb.cast(bigmarket(5), 'customers', by='Country'),
+            customers2=fb.cast(bigmarket1(5), 'customers', by='Country')
         )
         fb.run()
 
@@ -230,7 +230,7 @@ class TestMap(unittest.TestCase):
 
     def test_group_n(self):
         fb.register(
-            orders1=fb.map(lambda rs: {'a': len(rs)}, 'orders', by=10)
+            orders1=fb.cast(lambda rs: {'a': len(rs)}, 'orders', by=10)
         )
         fb.run()
         with fb1._connect('test.db') as c:
@@ -239,7 +239,7 @@ class TestMap(unittest.TestCase):
     # all of them at once
     def test_group_star(self):
         fb.register(
-            orders1=fb.map(lambda rs: rs, 'orders', by=' * '),
+            orders1=fb.cast(lambda rs: rs, 'orders', by=' * '),
         )
         fb.run()
         with fb1._connect('test.db') as c:
@@ -247,7 +247,7 @@ class TestMap(unittest.TestCase):
 
     def test_group_invalid(self):
         fb.register(
-            orders1=fb.map(lambda rs: {'a': 10}, 'orders', by=10.0),
+            orders1=fb.cast(lambda rs: {'a': 10}, 'orders', by=10.0),
         )
         _, undone = fb.run()
         self.assertEqual([x['output'] for x in undone], ['orders1'])
@@ -258,7 +258,7 @@ class TestMap(unittest.TestCase):
                 yield r
 
         fb.register(
-            orders1=fb.map(filter10, 'orders')
+            orders1=fb.cast(filter10, 'orders')
         )
         fb.run()
         with self.assertRaises(sqlite3.OperationalError):
@@ -271,7 +271,7 @@ class TestMap(unittest.TestCase):
                 return r
 
         fb.register(
-            orders1=fb.map(foo, 'orders'),
+            orders1=fb.cast(foo, 'orders'),
         )
         fb.run()
         with fb1._connect('test.db') as c:
@@ -281,7 +281,7 @@ class TestMap(unittest.TestCase):
         remdb()
 
 
-class TestMapErrornousInsertion(unittest.TestCase):
+class TestCastErrornousInsertion(unittest.TestCase):
     def setUp(self):
         initialize()
         fb.register(
@@ -297,7 +297,7 @@ class TestMapErrornousInsertion(unittest.TestCase):
             r['x'] = 10
             yield r
 
-        fb.register(orders1=fb.map(errornous1, 'orders', by='*'))
+        fb.register(orders1=fb.cast(errornous1, 'orders', by='*'))
         fb.run()
         # orders1 is not created
         with self.assertRaises(sqlite3.OperationalError):
@@ -311,7 +311,7 @@ class TestMapErrornousInsertion(unittest.TestCase):
             del r['customerid']
             yield r
 
-        fb.register(orders1=fb.map(errornous1, 'orders', by='*'))
+        fb.register(orders1=fb.cast(errornous1, 'orders', by='*'))
         fb.run()
         # orders1 is not created
         with self.assertRaises(sqlite3.OperationalError):
@@ -328,7 +328,7 @@ class TestMapErrornousInsertion(unittest.TestCase):
             r['xxx'] = 10
             yield r
 
-        fb.register(orders1=fb.map(errornous1, 'orders', by='*'))
+        fb.register(orders1=fb.cast(errornous1, 'orders', by='*'))
         fb.run()
         with fb1._connect('test.db') as c:
             x1, x2 = list(fet(c, 'orders1'))
@@ -360,7 +360,7 @@ class TestGraph(unittest.TestCase):
                 ['customers', 'Country', 'customerid'],
             ),
             # yearly number of orders by country
-            orders2=fb.map(count, 'orders1', by='yyyy, Country'),
+            orders2=fb.cast(count, 'orders1', by='yyyy, Country'),
         )
         saved_jobs = fb1._JOBS
         fb.run()
@@ -418,10 +418,10 @@ class TestIntegratedProcess(unittest.TestCase):
         fb.register(
             orders=fb.load('orders.csv'),
             # add month
-            orders1=fb.map(add(yyyymm=lambda r: r['orderdate'][:7]), 'orders'),
+            orders1=fb.cast(add(yyyymm=lambda r: r['orderdate'][:7]), 'orders'),
             # count the number of orders by month
-            orders2=fb.map(fn=sumup, data='orders1', by='yyyymm'),
-            orders3=fb.map(fn=cnt, data='orders2', by='*'),
+            orders2=fb.cast(fn=sumup, data='orders1', by='yyyymm'),
+            orders3=fb.cast(fn=cnt, data='orders2', by='*'),
             # want to compute past 6 months
             orders4=fb.join(
                 ['orders3', '*', 'cnt'],
@@ -432,7 +432,7 @@ class TestIntegratedProcess(unittest.TestCase):
                 ['orders3', 'norders as norders5', 'cnt + 5']
             ),
 
-            orders_avg_nmonth=fb.map(fn=orders_avg_nmonth, data='orders4'),
+            orders_avg_nmonth=fb.cast(fn=orders_avg_nmonth, data='orders4'),
         )
 
         fb.run()
@@ -448,15 +448,15 @@ class TestIntegratedProcess(unittest.TestCase):
         remdb()
 
 
-class TestAppend(unittest.TestCase):
+class TestGlue(unittest.TestCase):
     def setUp(self):
         initialize()
 
     def test_simple_union(self):
         fb.register(
             orders = fb.load('orders.csv'),
-            orders1=fb.map(lambda r: r, 'orders'),
-            orders2=fb.append('orders, orders1'),
+            orders1=fb.cast(lambda r: r, 'orders'),
+            orders2=fb.glue('orders, orders1'),
             # the following is also fine
             # orders2=fb.append(['orders', 'orders1'])
         )
@@ -478,7 +478,7 @@ class TestPar(unittest.TestCase):
         )
         fb.run()
 
-    def test_zip1(self):
+    def test_rail1(self):
         def itemsfn():
             allproducts = fb.get('products')
             def _f(items, products):
@@ -496,8 +496,8 @@ class TestPar(unittest.TestCase):
             return _f
 
         fb.register(
-            items1 = fb.zip(itemsfn, [('order_items', 'prod_id'), ('products', 'prod_id')]),
-            items2 = fb.zip(itemsfn, [('order_items', 'prod_id'), ('products', 'prod_id')], stop_short=True)
+            items1 = fb.rail(itemsfn, [('order_items', 'prod_id'), ('products', 'prod_id')]),
+            items2 = fb.rail(itemsfn, [('order_items', 'prod_id'), ('products', 'prod_id')], stop_short=True)
         )
         fb.run()
 
@@ -534,14 +534,14 @@ class TestParallel(unittest.TestCase):
         fb.register(
             orders=fb.load('orders.csv', fn=add_yyyy),
             # you can enforce single-core-proc by passing parallel "False"
-            orders1=fb.map(count, 'orders', by='yyyymm, shipperid'),
-            orders1s=fb.map(count, 'orders', by='yyyymm, shipperid', parallel=True),
+            orders1=fb.cast(count, 'orders', by='yyyymm, shipperid'),
+            orders1s=fb.cast(count, 'orders', by='yyyymm, shipperid', parallel=True),
             # part of workers do not have work to do, sort of a corner case
-            orders2=fb.map(count1, 'orders', by='yyyymm, shipperid'),
-            orders2s=fb.map(count1, 'orders', by='yyyymm, shipperid', parallel=True),
+            orders2=fb.cast(count1, 'orders', by='yyyymm, shipperid'),
+            orders2s=fb.cast(count1, 'orders', by='yyyymm, shipperid', parallel=True),
             # one column should work as well
-            orders3=fb.map(count, 'orders', by='yyyymm'),
-            orders3s=fb.map(count, 'orders', by='yyyymm', parallel=True),
+            orders3=fb.cast(count, 'orders', by='yyyymm'),
+            orders3s=fb.cast(count, 'orders', by='yyyymm', parallel=True),
         )
 
         fb.run()
@@ -562,11 +562,11 @@ class TestParallel(unittest.TestCase):
 
         fb.register(
             customers=fb.load('customers.csv'),
-            customers1=fb.map(first_name, 'customers'),
-            customers1s=fb.map(first_name, 'customers', parallel=4),
+            customers1=fb.cast(first_name, 'customers'),
+            customers1s=fb.cast(first_name, 'customers', parallel=4),
 
-            customers2=fb.map(first_name1, 'customers'),
-            customers2s=fb.map(first_name1, 'customers', parallel=3),
+            customers2=fb.cast(first_name1, 'customers'),
+            customers2s=fb.cast(first_name1, 'customers', parallel=3),
 
         )
         fb.run()
@@ -575,7 +575,7 @@ class TestParallel(unittest.TestCase):
             self.assertEqual(list(fet(c, 'customers1')), list(fet(c, 'customers1s')))
             self.assertEqual(list(fet(c, 'customers2')), list(fet(c, 'customers2s')))
 
-    # def test_pmap_with_get(self):
+    # def test_pcast_with_get(self):
 
     #     def orders1():
     #         d = {}
@@ -590,8 +590,8 @@ class TestParallel(unittest.TestCase):
     #     fb.register(
     #         customers=fb.load('customers.csv'),
     #         orders=fb.load('orders.csv'),
-    #         orders1=fb.map(orders1, 'orders'),
-    #         orders2=fb.map(orders1, 'orders', parallel=True),
+    #         orders1=fb.cast(orders1, 'orders'),
+    #         orders2=fb.cast(orders1, 'orders', parallel=True),
     #     )
 
     #     fb.run()
@@ -611,7 +611,7 @@ class TestLogMsg(unittest.TestCase):
         remdb()
         fb.register(
             orders=fb.load('orders.csv'),
-            orders1=fb.map(lambda r: r, 'orders'),
+            orders1=fb.cast(lambda r: r, 'orders'),
         )
         self.assertEqual(fb1._CONFIG['msg'], True)
         # you can pass keyword args for configuration
