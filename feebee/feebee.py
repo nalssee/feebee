@@ -318,6 +318,9 @@ class _Connection:
                     for r in rs:
                         writer.writerow(r)
 
+    def executescript(self, sql_script):
+        self._conn.executescript(sql_script)
+
     def _cols(self, query):
         return [c[0] for c in self._cursor.execute(query).description]
 
@@ -380,9 +383,17 @@ def _tqdm(seq, total, by):
 def _execute(c, job):
     cmd = job['cmd']
     if cmd == 'load':
-        c.load(job['file'], job['output'], delimiter=job['delimiter'],
-               quotechar=job['quotechar'], encoding=job['encoding'],
-               fn=job['fn'])
+        if job['safe']:
+            c.load(job['file'], job['output'], delimiter=job['delimiter'],
+                quotechar=job['quotechar'], encoding=job['encoding'],
+                fn=job['fn'])
+        else:
+            # many of the other options ignored
+            filename = os.path.join(_CONFIG['ws'], job['file'])
+            c.executescript(f"""
+                .separator {job['delimiter']};
+                .import {filename} {job['output']}
+            """)
 
     elif cmd == 'cast':
         tsize = c._size(job['inputs'][0])
@@ -549,14 +560,16 @@ def _exec_parallel_cast(c, job, max_workers, tsize):
             _delete_dbfiles(dbfiles)
 
 
-def load(file=None, fn=None, delimiter=None, quotechar='"', encoding='utf-8'):
+def load(file=None, fn=None, delimiter=None, quotechar='"', encoding='utf-8', safe=True):
     return {'cmd': 'load',
             'file': file,
             'fn': fn,
             'delimiter': delimiter,
             'quotechar': quotechar,
             'encoding': encoding,
-            'inputs': []}
+            'inputs': [],
+            'safe': safe
+            }
 
 
 def cast(fn=None, data=None, by=None, req=None, parallel=False):
