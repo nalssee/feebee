@@ -16,7 +16,7 @@ import psutil
 import pandas as pd
 from sas7bdat import SAS7BDAT
 from graphviz import Digraph
-from more_itertools import spy, chunked
+from more_itertools import spy, chunked, ichunked
 from pathos.multiprocessing import ProcessingPool as Pool
 from tqdm import tqdm
 from shutil import copyfile
@@ -129,6 +129,7 @@ def _connect(dbfile):
             conn._cursor.close()
             conn._conn.commit()
             conn._conn.close()
+            conn._is_connected = False
 
 
 @contextmanager
@@ -160,20 +161,28 @@ class _Connection:
         self._conn = sqlite3.connect(dbfile)
         self._conn.row_factory = _dict_factory
         self._cursor = self._conn.cursor()
+        self._is_connected = True
         # DO NOT re_CONFIGure pragmas. Defaults are defaults for a reason.
         # You could make it faster but with a cost. It could corrupt the disk
         # image of the database.
 
-    def fetch(self, query, by=None):
+    def fetch(self, query, by=None, df=False):
         if by and isinstance(by, list) and by != ['*'] and\
                 all(isinstance(c, str) for c in by):
             query += " order by " + ','.join(by)
         rows = self._conn.cursor().execute(query)
         if by:
             if isinstance(by, list):
-                rows1 = (list(rs) for _, rs in groupby(rows, _build_keyfn(by)))
+                if df:
+                    pass 
+                else:
+                    rows1 = (list(rs) for _, rs in groupby(rows, _build_keyfn(by)))
+
             elif isinstance(by, int):
-                rows1 = chunked(rows, by)
+                if df:
+                    pass
+                else:
+                    rows1 = chunked(rows, by)
             else:
                 raise InvalidGroup(by)
             yield from rows1
@@ -318,9 +327,6 @@ class _Connection:
                     for r in rs:
                         writer.writerow(r)
 
-    def executescript(self, sql_script):
-        self._conn.executescript(sql_script)
-
     def _cols(self, query):
         return [c[0] for c in self._cursor.execute(query).description]
 
@@ -329,23 +335,34 @@ class _Connection:
         return self._cursor.fetchone()['c']
 
 
-def get(tname, cols=None):
+def get(tname, cols=None, df=False):
     """Get a list of rows (the whole table) ordered by cols
     :param tname: table name
     :param cols: comma separated string
     :returns: a list of rows
     """
+    def getit(c):
+        if tname in c.get_tables():
+            if cols:
+                seq = c.fetch(f"""select * from {tname}
+                                order by {','.join(listify(cols))}""")
+            else:
+                seq = c.fetch(f"select * from {tname}")
+
+            if df:
+                return pd.DataFrame(seq)
+            else: 
+                return list(seq)
+        else:
+            raise NoSuchTableFound(tname)
+
     tname = tname.strip()
     c = _CONN[0]
-    if tname in c.get_tables():
-        if cols:
-            seq = c.fetch(f"""select * from {tname}
-                              order by {','.join(listify(cols))}""")
-        else:
-            seq = c.fetch(f"select * from {tname}")
-        return list(seq)
+    if c and c._is_connected:
+        return getit(c)
     else:
-        raise NoSuchTableFound(tname)
+        with _connect(_DBNAME) as c:
+            return getit(c)
 
 
 def _dict_factory(cursor, row):
@@ -383,17 +400,9 @@ def _tqdm(seq, total, by):
 def _execute(c, job):
     cmd = job['cmd']
     if cmd == 'load':
-        if job['safe']:
-            c.load(job['file'], job['output'], delimiter=job['delimiter'],
-                quotechar=job['quotechar'], encoding=job['encoding'],
-                fn=job['fn'])
-        else:
-            # many of the other options ignored
-            filename = os.path.join(_CONFIG['ws'], job['file'])
-            c.executescript(f"""
-                .separator {job['delimiter']};
-                .import {filename} {job['output']}
-            """)
+        c.load(job['file'], job['output'], delimiter=job['delimiter'],
+            quotechar=job['quotechar'], encoding=job['encoding'],
+            fn=job['fn'])
 
     elif cmd == 'cast':
         tsize = c._size(job['inputs'][0])
@@ -560,7 +569,7 @@ def _exec_parallel_cast(c, job, max_workers, tsize):
             _delete_dbfiles(dbfiles)
 
 
-def load(file=None, fn=None, delimiter=None, quotechar='"', encoding='utf-8', safe=True):
+def load(file=None, fn=None, delimiter=None, quotechar='"', encoding='utf-8'):
     return {'cmd': 'load',
             'file': file,
             'fn': fn,
@@ -568,18 +577,19 @@ def load(file=None, fn=None, delimiter=None, quotechar='"', encoding='utf-8', sa
             'quotechar': quotechar,
             'encoding': encoding,
             'inputs': [],
-            'safe': safe
             }
 
 
-def cast(fn=None, data=None, by=None, req=None, parallel=False):
+def cast(fn=None, data=None, by=None, gby=None, req=None, parallel=False):
     # req: required tables other than 'data'
     return {
         'cmd': 'cast',
         'fn': fn,
         'inputs': [data] + listify(req) if req else [data],
         'by': by,
-        'parallel': parallel
+        # if gby is given each chunk is 
+        'gby': gby,
+        'parallel': parallel,
     }
 
 

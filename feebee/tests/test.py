@@ -113,15 +113,6 @@ class TestLoading(unittest.TestCase):
         with fb1._connect('test.db') as c:
             self.assertEqual(c._cols("select * from foo"), ['a', 'b'])
 
-    def test_loading_unsafe(self):
-        fb.register(
-            foo=fb.load('orders.csv', safe=False),
-        )
-        fb.run()
-        with fb1._connect('test.db') as c:
-            print(fet(c, 'foo'))
-
-
     def tearDown(self):
         if os.path.isfile('test.db'):
             os.remove('test.db')
@@ -285,6 +276,11 @@ class TestCast(unittest.TestCase):
         fb.run()
         with fb1._connect('test.db') as c:
             self.assertEqual(len(list(fet(c, 'orders1'))), 54)
+
+    def test_get(self):
+       print(fb.get('orders')) 
+       
+
 
     def tearDown(self):
         remdb()
