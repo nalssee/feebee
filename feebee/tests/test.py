@@ -2,6 +2,7 @@ import os
 import sys
 import unittest
 import sqlite3
+import pandas as pd
 
 TESTPATH = os.path.dirname(os.path.realpath(__file__))
 PYPATH = os.path.join(TESTPATH, '..', '..')
@@ -278,9 +279,12 @@ class TestCast(unittest.TestCase):
             self.assertEqual(len(list(fet(c, 'orders1'))), 54)
 
     def test_get(self):
-       print(fb.get('orders')) 
-       
-
+        # dataframe
+        orders_df = fb.get('orders', df=True)
+        # list of dicts
+        orders_ld = fb.get('orders')
+        self.assertEqual(orders_df.shape[0], len(orders_ld))
+        self.assertEqual(orders_df.shape[1], len(orders_ld[0]))
 
     def tearDown(self):
         remdb()

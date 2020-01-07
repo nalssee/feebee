@@ -166,23 +166,17 @@ class _Connection:
         # You could make it faster but with a cost. It could corrupt the disk
         # image of the database.
 
-    def fetch(self, query, by=None, df=False):
+    def fetch(self, query, by=None):
         if by and isinstance(by, list) and by != ['*'] and\
                 all(isinstance(c, str) for c in by):
             query += " order by " + ','.join(by)
         rows = self._conn.cursor().execute(query)
         if by:
             if isinstance(by, list):
-                if df:
-                    pass 
-                else:
-                    rows1 = (list(rs) for _, rs in groupby(rows, _build_keyfn(by)))
+                rows1 = (list(rs) for _, rs in groupby(rows, _build_keyfn(by)))
 
             elif isinstance(by, int):
-                if df:
-                    pass
-                else:
-                    rows1 = chunked(rows, by)
+                rows1 = chunked(rows, by)
             else:
                 raise InvalidGroup(by)
             yield from rows1
@@ -344,15 +338,12 @@ def get(tname, cols=None, df=False):
     def getit(c):
         if tname in c.get_tables():
             if cols:
-                seq = c.fetch(f"""select * from {tname}
-                                order by {','.join(listify(cols))}""")
+                sql = f"""select * from {tname}
+                          order by {','.join(listify(cols))}"""
             else:
-                seq = c.fetch(f"select * from {tname}")
+                sql = f"select * from {tname}"
 
-            if df:
-                return pd.DataFrame(seq)
-            else: 
-                return list(seq)
+            return pd.read_sql(sql, c._conn) if df else list(c.fetch(sql))
         else:
             raise NoSuchTableFound(tname)
 
