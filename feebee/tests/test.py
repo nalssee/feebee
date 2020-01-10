@@ -286,6 +286,11 @@ class TestCast(unittest.TestCase):
         self.assertEqual(orders_df.shape[0], len(orders_ld))
         self.assertEqual(orders_df.shape[1], len(orders_ld[0]))
 
+
+    def test_df(self):
+        pass
+        
+
     def tearDown(self):
         remdb()
 

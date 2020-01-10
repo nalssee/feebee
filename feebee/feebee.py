@@ -166,21 +166,34 @@ class _Connection:
         # You could make it faster but with a cost. It could corrupt the disk
         # image of the database.
 
-    def fetch(self, query, by=None):
+    def fetch(self, query, by=None, df=False):
         if by and isinstance(by, list) and by != ['*'] and\
                 all(isinstance(c, str) for c in by):
             query += " order by " + ','.join(by)
-        rows = self._conn.cursor().execute(query)
         if by:
             if isinstance(by, list):
-                rows1 = (list(rs) for _, rs in groupby(rows, _build_keyfn(by)))
+                if df:
+                    if by == ['*']:
+                        rows1 = (pd.read_sql(query, self._conn),)
+                    else:
+                        rows = self._conn.cursor().execute(query)
+                        rows1 = (pd.DataFrame(rs) for _, rs in groupby(rows, _build_keyfn(by)))
+                else:
+                    rows = self._conn.cursor().execute(query)
+                    rows1 = (list(rs) for _, rs in groupby(rows, _build_keyfn(by)))
 
             elif isinstance(by, int):
-                rows1 = chunked(rows, by)
+                if df:
+                    rows1 = pd.read_sql(query, self._conn, chunksize=by)
+                else:
+                    rows = self._conn.cursor().execute(query)
+                    rows1 = chunked(rows, by)
+
             else:
                 raise InvalidGroup(by)
             yield from rows1
         else:
+            rows = self._conn.cursor().execute(query)
             yield from rows
 
     def insert(self, rs, name):
@@ -367,6 +380,8 @@ def _flatten(seq):
     for x in seq:
         if isinstance(x, dict):
             yield x
+        elif isinstance(x, pd.DataFrame):
+            yield from x.to_dict('records')
         elif x is not None:
             yield from x
 
@@ -380,6 +395,7 @@ def _tqdm(seq, total, by):
         with tqdm(seq, total=total) as pbar:
             for rs in seq:
                 yield rs
+                # works for dataframe as well. 
                 pbar.update(len(rs))
     else:
         with tqdm(seq, total=total) as pbar:
@@ -413,7 +429,7 @@ def _execute(c, job):
         else:
             logger.info(f"processing {job['cmd']}: {job['output']}")
             seq = c.fetch(f"select * from {job['inputs'][0]}",
-                          listify(job['by']))
+                          listify(job['by']), job['df'])
             seq1 = _applyfn(job['evaled_fn'], _tqdm(seq, tsize, job['by']))
             c.insert(seq1, job['output'])
 
@@ -571,15 +587,14 @@ def load(file=None, fn=None, delimiter=None, quotechar='"', encoding='utf-8'):
             }
 
 
-def cast(fn=None, data=None, by=None, gby=None, req=None, parallel=False):
+def cast(fn=None, data=None, by=None, df=False, req=None, parallel=False):
     # req: required tables other than 'data'
     return {
         'cmd': 'cast',
         'fn': fn,
         'inputs': [data] + listify(req) if req else [data],
         'by': by,
-        # if gby is given each chunk is 
-        'gby': gby,
+        'df': df,
         'parallel': parallel,
     }
 
