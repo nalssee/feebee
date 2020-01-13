@@ -16,7 +16,7 @@ import psutil
 import pandas as pd
 from sas7bdat import SAS7BDAT
 from graphviz import Digraph
-from more_itertools import spy, chunked, ichunked
+from more_itertools import spy, chunked
 from pathos.multiprocessing import ProcessingPool as Pool
 from tqdm import tqdm
 from shutil import copyfile
@@ -33,7 +33,7 @@ _CONFIG = {
     'locale': _locale,
     'msg': True,
     'refresh': None,
-    'export': None
+    'export': None,
 }
 
 _filename, _ = os.path.splitext(os.path.basename(sys.argv[0]))
@@ -177,10 +177,12 @@ class _Connection:
                         rows1 = (pd.read_sql(query, self._conn),)
                     else:
                         rows = self._conn.cursor().execute(query)
-                        rows1 = (pd.DataFrame(rs) for _, rs in groupby(rows, _build_keyfn(by)))
+                        rows1 = (pd.DataFrame(rs) for _, rs in
+                                 groupby(rows, _build_keyfn(by)))
                 else:
                     rows = self._conn.cursor().execute(query)
-                    rows1 = (list(rs) for _, rs in groupby(rows, _build_keyfn(by)))
+                    rows1 = (list(rs) for _, rs in
+                             groupby(rows, _build_keyfn(by)))
 
             elif isinstance(by, int):
                 if df:
@@ -237,9 +239,11 @@ class _Connection:
             # functions of 'load' should be limited
             seq = filename
 
+        seq = tqdm(seq, total=total)
+
         if fn:
             seq = _flatten(fn(rs) for rs in seq)
-        self.insert(tqdm(seq, total=total), name)
+        self.insert(seq, name)
 
     def get_tables(self):
         query = self._cursor.\
@@ -377,11 +381,14 @@ def _dict_factory(cursor, row):
 
 
 def _flatten(seq):
+    # You could think of enhancing the performance here.
+    # But I doubt that it's worth the trouble
     for x in seq:
         if isinstance(x, dict):
             yield x
         elif isinstance(x, pd.DataFrame):
             yield from x.to_dict('records')
+        # ignores None
         elif x is not None:
             yield from x
 
@@ -395,7 +402,7 @@ def _tqdm(seq, total, by):
         with tqdm(seq, total=total) as pbar:
             for rs in seq:
                 yield rs
-                # works for dataframe as well. 
+                # works for dataframe as well.
                 pbar.update(len(rs))
     else:
         with tqdm(seq, total=total) as pbar:
@@ -408,8 +415,8 @@ def _execute(c, job):
     cmd = job['cmd']
     if cmd == 'load':
         c.load(job['file'], job['output'], delimiter=job['delimiter'],
-            quotechar=job['quotechar'], encoding=job['encoding'],
-            fn=job['fn'])
+               quotechar=job['quotechar'], encoding=job['encoding'],
+               fn=job['fn'])
 
     elif cmd == 'cast':
         tsize = c._size(job['inputs'][0])
@@ -457,11 +464,17 @@ def _execute(c, job):
 
 
 def _line_count(fname, encoding, newline):
-    with open(fname, encoding=encoding, newline=newline) as f:
-        for i, _ in enumerate(f):
-            pass
-    # header implied, hence not i + 1
-    return i
+    # read the number of lines fast
+    def blocks(fp):
+        while True:
+            b = fp.read(65536)
+            if not b:
+                break
+            yield b
+
+    with open(fname, encoding=encoding, newline=newline, errors='ignore') as f:
+        # subtract -1 for a header
+        return (sum(bl.count("\n") for bl in blocks(f))) - 1
 
 
 # sqlite3 in osx can't handle multiple connections properly.
@@ -486,7 +499,7 @@ def _exec_parallel_cast(c, job, max_workers, tsize):
         with _connect(dbfile) as c1:
             n = cut[1] - cut[0]
             seq = _applyfn(job['evaled_fn'],
-                           _tqdm(c1.fetch(query, by=bys), n, by=bys))
+                           _tqdm(c1.fetch(query, by=bys, df=job['df']), n, by=bys))
             try:
                 c1.insert(seq, job['output'])
             except NoRowToInsert:

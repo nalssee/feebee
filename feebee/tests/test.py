@@ -9,8 +9,10 @@ PYPATH = os.path.join(TESTPATH, '..', '..')
 sys.path.append(PYPATH)
 
 import feebee as fb
+from feebee.util import add
 # only for testing
 import feebee.feebee as fb1
+
 
 # customers.csv
 # CustomerID,CustomerName,ContactName,Address,City,PostalCode,Country
@@ -288,8 +290,26 @@ class TestCast(unittest.TestCase):
 
 
     def test_df(self):
-        pass
-        
+        def the_first(df):
+            r = df.to_dict('records')[0]
+            r['df'] = isinstance(df, pd.DataFrame)
+            r['n'] = len(df)
+            return r
+
+        fb.register(
+            orders1 = fb.cast(add(yyyymm=lambda r: r['orderdate'][0:7]), 'orders'),
+            orders2 = fb.cast(add(df=lambda x: isinstance(x, pd.DataFrame)), 'orders1', by='yyyymm', df=True),
+            orders2s = fb.cast(add(df=lambda x: isinstance(x, pd.DataFrame)), 'orders1', by='yyyymm', df=True, parallel=True),
+            orders3 = fb.cast(the_first, 'orders1', by='*', df=True),
+        )
+
+        fb.run()
+        self.assertTrue(all(r['df'] == 1 for r in fb.get('orders2')))
+        self.assertEqual(fb.get('orders2'), fb.get('orders2s'))
+
+        r = fb.get('orders3')[0]
+        self.assertTrue(r['df'] == 1)
+        self.assertTrue(r['n'] == 196)
 
     def tearDown(self):
         remdb()

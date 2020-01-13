@@ -1,7 +1,7 @@
 from setuptools import setup
 
 setup(name='feebee',
-      version='0.7.2',
+      version='0.8.0',
       description='datawork tools',
       url='https://github.com/nalssee/feebee.git',
       author='nalssee',
@@ -22,8 +22,6 @@ setup(name='feebee',
           'tqdm>=4.29.1',
           # 'statsmodels==0.10.1',
           'statsmodels',
-          # requires c/c++ compiler installation
-          'ciso8601>=2.1.1',
           'pandas',
         ],
       zip_safe=False)

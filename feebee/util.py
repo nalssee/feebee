@@ -5,6 +5,7 @@ from datetime import timedelta
 import numpy as np
 from itertools import accumulate, groupby, chain, islice
 import ciso8601
+import pandas as pd
 
 
 def lag(cols, datecol, ns, add1fn=None, max_missings=10_000):
@@ -124,6 +125,38 @@ def where(pred, fn=None):
         return lambda r: (r if pred(r) else None)
 
 
+def add(**kwargs):
+    # vs is a list of functions
+    ks, vs = list(kwargs), list(kwargs.values())
+
+    if len(ks) == 1:
+        k1, v1 = ks[0], vs[0]
+
+    if len(ks) == 2:
+        k1, v1 = ks[0], vs[0]
+        k2, v2 = ks[1], vs[1]
+
+    def _f1(x):
+        x[k1] = v1[x]
+        return x
+
+    def _f2(x):
+        x[k1], x[k2] = v1[x], v2[x]
+        return x
+
+    def _fn(x):
+        for k, v in kwargs.items():
+            x[k] = v[x]
+        return x
+
+    if len(ks) == 1:
+        return _f1
+    elif len(ks) == 2:
+        return _f2
+    else:
+        return _fn
+
+
 def head(n):
     def _f(rs):
         yield from islice(rs, 0, n)
@@ -133,7 +166,7 @@ def head(n):
 def read_date(date):
     """ Read date string and returns a python datetime object
     """
-    return ciso8601.parse_datetime(date)
+    return pd.to_datetime(date)
 
 
 def add_date(date, n):
@@ -150,8 +183,8 @@ def add_date(date, n):
         return str(y1) + '-' + str(m1).zfill(2)
     # "1903-09-29"
     elif len(date) == 10:
-        d = ciso8601.parse_datetime(date)
-        d1 = d + timedelta(days=n)
+        d = pd.to_datetime(date)
+        d1 = d + pd.Timedelta(days=n)
         return d1.strftime("%Y-%m-%d")
     else:
         raise ValueError("Unsupported date format", date)
