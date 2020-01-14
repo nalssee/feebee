@@ -4,7 +4,6 @@ import xlrd
 from datetime import timedelta
 import numpy as np
 from itertools import accumulate, groupby, chain, islice
-import ciso8601
 import pandas as pd
 
 
