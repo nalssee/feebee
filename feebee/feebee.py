@@ -114,6 +114,10 @@ class NoSuchTableFound(FeebeeError):
     pass
 
 
+class SkipThisTurn(FeebeeError):
+    pass
+
+
 @contextmanager
 def _connect(dbfile):
     conn = _Connection(dbfile)
@@ -367,7 +371,14 @@ def get(tname, cols=None, df=False):
     tname = tname.strip()
     c = _CONN[0]
     if c and c._is_connected:
-        return getit(c)
+        try:
+            return getit(c)
+        except NoSuchTableFound as e:
+            # when it's possible to execute once the other jobs are done
+            if tname in _JOBS:
+                raise SkipThisTurn
+            else:
+                raise e
     else:
         with _connect(_DBNAME) as c:
             return getit(c)
@@ -600,12 +611,11 @@ def load(file=None, fn=None, delimiter=None, quotechar='"', encoding='utf-8'):
             }
 
 
-def cast(fn=None, data=None, by=None, df=False, req=None, parallel=False):
-    # req: required tables other than 'data'
+def cast(fn=None, data=None, by=None, df=False, parallel=False):
     return {
         'cmd': 'cast',
         'fn': fn,
-        'inputs': [data] + listify(req) if req else [data],
+        'inputs': [data],
         'by': by,
         'df': df,
         'parallel': parallel,
@@ -808,6 +818,9 @@ def _run():
                             logger.info(
                                 f"processing {job['cmd']}: {job['output']}")
                         _execute(c, job)
+
+                    except SkipThisTurn:
+                        continue
 
                     except Exception as e:
 

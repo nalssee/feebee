@@ -177,16 +177,15 @@ class TestCast(unittest.TestCase):
             return _f
 
         fb.register(
-            orders1 = fb.cast(count, 'orders', req='customers'),
-            orders2 = fb.cast(count, 'orders', req='customers', parallel=True),
+            orders1 = fb.cast(count, 'orders'),
+            orders2 = fb.cast(count, 'orders', parallel=True),
         )
         fb.run()
-        with fb1._connect('test.db') as c:
-            orders1 = fet(c, 'orders1')
-            orders2 = fet(c, 'orders2')
-            self.assertEqual([r['num'] for r in orders1], [91] * len(orders1))
-            self.assertEqual(orders1, orders2)
 
+        orders1 = fb.get('orders1')
+        orders2 = fb.get('orders2')
+        self.assertEqual([r['num'] for r in orders1], [91] * len(orders1))
+        self.assertEqual(orders1, orders2)
 
     def test_append_yyyy_yyyymm_columns(self):
         def add_yyyy_yyyymm(r):
