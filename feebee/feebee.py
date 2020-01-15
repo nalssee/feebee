@@ -363,7 +363,6 @@ def get(tname, cols=None, df=False):
                           order by {','.join(listify(cols))}"""
             else:
                 sql = f"select * from {tname}"
-
             return pd.read_sql(sql, c._conn) if df else list(c.fetch(sql))
         else:
             raise NoSuchTableFound(tname)

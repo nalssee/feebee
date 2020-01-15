@@ -136,16 +136,16 @@ def add(**kwargs):
         k2, v2 = ks[1], vs[1]
 
     def _f1(x):
-        x[k1] = v1[x]
+        x[k1] = v1(x)
         return x
 
     def _f2(x):
-        x[k1], x[k2] = v1[x], v2[x]
+        x[k1], x[k2] = v1(x), v2(x)
         return x
 
     def _fn(x):
         for k, v in kwargs.items():
-            x[k] = v[x]
+            x[k] = v(x)
         return x
 
     if len(ks) == 1:
