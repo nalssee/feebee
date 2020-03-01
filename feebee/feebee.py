@@ -22,6 +22,10 @@ from tqdm import tqdm
 from shutil import copyfile
 from openpyxl import Workbook
 
+import sqlparse
+from sqlparse.sql import IdentifierList, Identifier
+from sqlparse.tokens import Keyword, DML
+
 from .util import listify, step, _build_keyfn
 
 
@@ -454,6 +458,9 @@ def _execute(c, job):
     elif cmd == 'join':
         c.join(job['args'], job['output'])
 
+    elif cmd == 'sql':
+        c._cursor.execute(job['query'],  parameters=job[])
+
     elif cmd == 'rail':
         tsize = c._size(job['inputs'][0])
         gseqs = [groupby(c.fetch(f"""select * from {table}
@@ -644,6 +651,17 @@ def glue(inputs):
     return {
         'cmd': 'glue',
         'inputs': listify(inputs)
+    }
+
+
+def sql(query, args=None):
+    query = query.lower()
+    return {
+        'cmd': 'sql',
+        'query': query,
+        'inputs': _get_tables(query),
+
+
     }
 
 
@@ -935,3 +953,42 @@ def _is_reserved(x):
 
 def _is_thunk(fn):
     return len(signature(fn).parameters) == 0
+
+
+# def _is_subselect(parsed):
+#     if not parsed.is_group:
+#         return False
+#     for item in parsed.tokens:
+#         if item.ttype is sqlparse.tokens.DML and item.value.upper() == 'SELECT':
+#             return True
+#     return False
+
+
+# def _get_prev_keyword(item, parsed):
+#     idx = parsed.token_index(item)
+#     found = None
+#     while idx and not found:
+#         idx -= 1
+#         if parsed.tokens[idx].ttype == sqlparse.tokens.Keyword:
+#             found = parsed.tokens[idx]
+#     return found
+
+
+# def _get_tables(parsed):
+#     def _gen(parsed):
+#         for item in parsed.tokens:
+#             prev = _get_prev_keyword(item, parsed)
+#             if prev and ("JOIN" in prev.value.upper() or "FROM" in prev.value.upper()):
+#                 if isinstance(item, sqlparse.sql.Identifier):
+#                     yield item.get_real_name()
+#                 elif isinstance(item, sqlparse.sql.IdentifierList):
+#                     for x in item:
+#                         if isinstance(x, sqlparse.sql.Identifier) or isinstance(x, sqlparse.sql.IdentifierList):
+#                             yield x.get_real_name()
+#                         elif _is_subselect(x):
+#                             yield from _gen(x)
+#                 elif _is_subselect(item):
+#                     yield from _gen(item)
+#     return list(dict.fromkeys(_gen(parsed)))
+
+
