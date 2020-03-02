@@ -5,8 +5,10 @@ import sqlparse
 from moz_sql_parser import parse
 
 sql0 = """
-select a, b
-from c
+select a
+from c x, d
+where a >= 10
+order by t
 """
 sql1 = """
 select a.col1, B.col2
@@ -124,37 +126,55 @@ left join table2 as b using(col1)
 # _get_cols_for_matching(sqlparse.parse(sql1)[0])
 #     print(x)
 
-def _contains(x, symbol):
-    for k, v in x.items():
-        if symbol in k:
-            return True
-    return False
+
+#  ambiguous get
+def _dget(d, sym):
+    for k, v in d.items():
+        if sym in k:
+            return (k, v)
+    return (None, None)
 
 
-def _filter_clauses(xs, symbol):
-    return [x for x in xs if _contains(x, symbol)]
+# def _filter_clauses(xs, symbol):
+#     return [x for x in xs if _contains(x, symbol)]
 
 
 def _get_tables_from_sql(parsed):
     tables = parsed['from']
     if isinstance(tables, str):
         yield tables
+    # list of tables
     else:
         for table in tables:
-            if _contains(table, 'select'):
-                yield from _get_tables_from_sql(table)
+            if isinstance(table, str):
+                yield table
             else:
+                k, v = _dget(table, 'value')
+                if k:
+                    if isinstance(v, str):
+                        yield v
+                    # subselect
+                    else:
+                        yield from _get_tables_from_sql(v)
+
+                else:
+                    k, v = _dget(table, 'join')
+                    if k:
+                        k1, v1 = _dget(v, 'value')
+                        if k1:
+                            if isinstance(v1, str):
+                                yield v1
+                            # subselect
+                            else:
+                                yield from _get_tables_from_sql(v1)
 
 
+def _get_matching_cols(parsed):
+    tables = parsed['from']
 
 
-
-        yield from _filter_clauses(tables, 'from')
-        yield from _filter_clauses(tables, 'join')
-
-
-
-# print(parse(sql3))
+# print(parse(sql1))
+print(parse(sql0))
 print(list(_get_tables_from_sql(parse(sql1))))
 
 # parsed = parse(sql2)
