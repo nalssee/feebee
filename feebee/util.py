@@ -1,7 +1,6 @@
 import locale
 import csv
 import xlrd
-from datetime import timedelta
 import numpy as np
 from itertools import accumulate, groupby, chain, islice
 import pandas as pd

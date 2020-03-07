@@ -274,7 +274,7 @@ class _Connection:
                     if isinstance(c1, str):
                         eqs.append(f't0.{c0} = t{i}.{c1}')
                     else:
-                        # c1 comes with a binary operator like ">=", ">", "<=", ...
+                        # c1 comes with a binary operator like ">=", ">" ...
                         binop, c1 = c1
                         eqs.append(f't0.{c0} {binop} t{i}.{c1}')
 
@@ -440,7 +440,8 @@ def _execute(c, job):
             _exec_parallel_cast(c, job, max_workers, tsize)
         else:
             logger.info(f"processing {job['cmd']}: {job['output']}")
-            seq = c.fetch(f"select * from {job['inputs'][0]}", listify(job['by']))
+            seq = c.fetch(f"select * from {job['inputs'][0]}", 
+                          listify(job['by']))
             seq1 = _applyfn(job['evaled_fn'], _tqdm(seq, tsize, job['by']))
             c.insert(seq1, job['output'])
 
@@ -637,17 +638,6 @@ def glue(inputs):
     return {
         'cmd': 'glue',
         'inputs': listify(inputs)
-    }
-
-
-def sql(query, args=None):
-    query = query.lower()
-    return {
-        'cmd': 'sql',
-        'query': query,
-        'inputs': _get_tables(query),
-
-
     }
 
 
