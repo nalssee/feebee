@@ -9,7 +9,7 @@ PYPATH = os.path.join(TESTPATH, '..', '..')
 sys.path.append(PYPATH)
 
 import feebee as fb
-from feebee.util import add
+from feebee.util import add, where, isnum
 
 # customers.csv
 # CustomerID,CustomerName,ContactName,Address,City,PostalCode,Country
@@ -275,28 +275,21 @@ class TestCast(unittest.TestCase):
         self.assertEqual(orders_df.shape[0], len(orders_ld))
         self.assertEqual(orders_df.shape[1], len(orders_ld[0]))
 
-
-    def test_df(self):
-        def the_first(df):
-            r = df.to_dict('records')[0]
-            r['df'] = isinstance(df, pd.DataFrame)
-            r['n'] = len(df)
-            return r
-
+    def test_join(self):
         fb.register(
-            orders1 = fb.cast(add(yyyymm=lambda r: r['orderdate'][0:7]), 'orders'),
-            orders2 = fb.cast(add(df=lambda x: isinstance(x, pd.DataFrame)), 'orders1', by='yyyymm', df=True),
-            orders2s = fb.cast(add(df=lambda x: isinstance(x, pd.DataFrame)), 'orders1', by='yyyymm', df=True, parallel=True),
-            orders3 = fb.cast(the_first, 'orders1', by='*', df=True),
+            torders = fb.load('tysql_Orders.csv'),
+            torder_items = fb.load('tysql_OrderItems.csv'),
+            torders1 = fb.cast(add(cust_id1=lambda r: str(r['cust_id'])[-1]), 'torders'),
+            torders2 = fb.join(
+                ['torders1', "*", 'order_num, cust_id1'],
+                ['torder_items', 'order_num as order_num1, order_item, prod_id, quantity', ['order_num ', (">", 'order_item')]]
+            ),
+            torders3 = fb.cast(where(lambda r: isnum(r['order_num1'])), 'torders2')
+
         )
-
         fb.run()
-        self.assertTrue(all(r['df'] == 1 for r in fb.get('orders2')))
-        self.assertEqual(fb.get('orders2'), fb.get('orders2s'))
-
-        r = fb.get('orders3')[0]
-        self.assertTrue(r['df'] == 1)
-        self.assertTrue(r['n'] == 196)
+        self.assertEqual(len(fb.get('torders2')), 11)
+        self.assertEqual(len(fb.get('torders3')), 9)
 
     def tearDown(self):
         remdb()
@@ -478,7 +471,6 @@ class TestGlue(unittest.TestCase):
         )
         fb.run()
 
-        # with fb1._connect('test.db') as c:
         self.assertEqual(len(list(fb.get('orders'))) * 2, len(list(fb.get('orders2'))))
 
     def tearDown(self):
@@ -518,7 +510,6 @@ class TestRail(unittest.TestCase):
         fb.run()
 
         self.assertEqual(len(fb.get('items1')), len(fb.get('items2')) + 2)
-
 
     def tearDown(self):
         remdb()

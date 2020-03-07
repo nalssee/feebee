@@ -22,10 +22,6 @@ from tqdm import tqdm
 from shutil import copyfile
 from openpyxl import Workbook
 
-import sqlparse
-from sqlparse.sql import IdentifierList, Identifier
-from sqlparse.tokens import Keyword, DML
-
 from .util import listify, step, _build_keyfn
 
 
@@ -174,33 +170,23 @@ class _Connection:
         # You could make it faster but with a cost. It could corrupt the disk
         # image of the database.
 
-    def fetch(self, query, by=None, df=False):
+    def fetch(self, query, by=None):
         if by and isinstance(by, list) and by != ['*'] and\
                 all(isinstance(c, str) for c in by):
             query += " order by " + ','.join(by)
         if by:
             if isinstance(by, list):
-                if df:
-                    if by == ['*']:
-                        rows1 = (pd.read_sql(query, self._conn),)
-                    else:
-                        rows = self._conn.cursor().execute(query)
-                        rows1 = (pd.DataFrame(rs) for _, rs in
-                                 groupby(rows, _build_keyfn(by)))
-                else:
-                    rows = self._conn.cursor().execute(query)
-                    rows1 = (list(rs) for _, rs in
-                             groupby(rows, _build_keyfn(by)))
+                rows = self._conn.cursor().execute(query)
+                rows1 = (list(rs) for _, rs in
+                         groupby(rows, _build_keyfn(by)))
 
             elif isinstance(by, int):
-                if df:
-                    rows1 = pd.read_sql(query, self._conn, chunksize=by)
-                else:
-                    rows = self._conn.cursor().execute(query)
-                    rows1 = chunked(rows, by)
+                rows = self._conn.cursor().execute(query)
+                rows1 = chunked(rows, by)
 
             else:
                 raise InvalidGroup(by)
+
             yield from rows1
         else:
             rows = self._conn.cursor().execute(query)
@@ -285,7 +271,13 @@ class _Connection:
                 if c1:
                     # allows expression such as 'col + 4' for 'c1',
                     # for example. somewhat sneaky though
-                    eqs.append(f't0.{c0} = t{i}.{c1}')
+                    if isinstance(c1, str):
+                        eqs.append(f't0.{c0} = t{i}.{c1}')
+                    else:
+                        # c1 comes with a binary operator like ">=", ">", "<=", ...
+                        binop, c1 = c1
+                        eqs.append(f't0.{c0} {binop} t{i}.{c1}')
+
             join_clauses.\
                 append(f"left join {tname1} as t{i} on {' and '.join(eqs)}")
         jcs = ' '.join(join_clauses)
@@ -303,7 +295,8 @@ class _Connection:
         # create indices
         ind_tnames = []
         for tname, _, mcols in tinfos:
-            mcols1 = [c for c in listify(mcols) if c]
+            mcols1 = list(dict.fromkeys(c if isinstance(c, str) else c[1]
+                                        for c in listify(mcols) if c))
             ind_tname = tname + _random_string(10)
             # allows expression such as 'col + 4' for indexing, for example.
             # https://www.sqlite.org/expridx.html
@@ -315,6 +308,7 @@ class _Connection:
         {', '.join(allcols)} from {tname0} as t0 {jcs}
         """
         self._cursor.execute(query)
+
         # drop indices, not so necessary
         for ind_tname in ind_tnames:
             self._cursor.execute(f"drop index {ind_tname}")
@@ -400,8 +394,6 @@ def _flatten(seq):
     for x in seq:
         if isinstance(x, dict):
             yield x
-        elif isinstance(x, pd.DataFrame):
-            yield from x.to_dict('records')
         # ignores None
         elif x is not None:
             yield from x
@@ -416,7 +408,6 @@ def _tqdm(seq, total, by):
         with tqdm(seq, total=total) as pbar:
             for rs in seq:
                 yield rs
-                # works for dataframe as well.
                 pbar.update(len(rs))
     else:
         with tqdm(seq, total=total) as pbar:
@@ -449,17 +440,13 @@ def _execute(c, job):
             _exec_parallel_cast(c, job, max_workers, tsize)
         else:
             logger.info(f"processing {job['cmd']}: {job['output']}")
-            seq = c.fetch(f"select * from {job['inputs'][0]}",
-                          listify(job['by']), job['df'])
+            seq = c.fetch(f"select * from {job['inputs'][0]}", listify(job['by']))
             seq1 = _applyfn(job['evaled_fn'], _tqdm(seq, tsize, job['by']))
             c.insert(seq1, job['output'])
 
     # The only place where 'insert' is not used
     elif cmd == 'join':
         c.join(job['args'], job['output'])
-
-    elif cmd == 'sql':
-        c._cursor.execute(job['query'],  parameters=job[])
 
     elif cmd == 'rail':
         tsize = c._size(job['inputs'][0])
@@ -516,7 +503,7 @@ def _exec_parallel_cast(c, job, max_workers, tsize):
         with _connect(dbfile) as c1:
             n = cut[1] - cut[0]
             seq = _applyfn(job['evaled_fn'],
-                           _tqdm(c1.fetch(query, by=bys, df=job['df']), n, by=bys))
+                           _tqdm(c1.fetch(query, by=bys), n, by=bys))
             try:
                 c1.insert(seq, job['output'])
             except NoRowToInsert:
@@ -617,13 +604,12 @@ def load(file=None, fn=None, delimiter=None, quotechar='"', encoding='utf-8'):
             }
 
 
-def cast(fn=None, data=None, by=None, df=False, parallel=False):
+def cast(fn=None, data=None, by=None, parallel=False):
     return {
         'cmd': 'cast',
         'fn': fn,
         'inputs': [data],
         'by': by,
-        'df': df,
         'parallel': parallel,
     }
 
@@ -953,42 +939,3 @@ def _is_reserved(x):
 
 def _is_thunk(fn):
     return len(signature(fn).parameters) == 0
-
-
-# def _is_subselect(parsed):
-#     if not parsed.is_group:
-#         return False
-#     for item in parsed.tokens:
-#         if item.ttype is sqlparse.tokens.DML and item.value.upper() == 'SELECT':
-#             return True
-#     return False
-
-
-# def _get_prev_keyword(item, parsed):
-#     idx = parsed.token_index(item)
-#     found = None
-#     while idx and not found:
-#         idx -= 1
-#         if parsed.tokens[idx].ttype == sqlparse.tokens.Keyword:
-#             found = parsed.tokens[idx]
-#     return found
-
-
-# def _get_tables(parsed):
-#     def _gen(parsed):
-#         for item in parsed.tokens:
-#             prev = _get_prev_keyword(item, parsed)
-#             if prev and ("JOIN" in prev.value.upper() or "FROM" in prev.value.upper()):
-#                 if isinstance(item, sqlparse.sql.Identifier):
-#                     yield item.get_real_name()
-#                 elif isinstance(item, sqlparse.sql.IdentifierList):
-#                     for x in item:
-#                         if isinstance(x, sqlparse.sql.Identifier) or isinstance(x, sqlparse.sql.IdentifierList):
-#                             yield x.get_real_name()
-#                         elif _is_subselect(x):
-#                             yield from _gen(x)
-#                 elif _is_subselect(item):
-#                     yield from _gen(item)
-#     return list(dict.fromkeys(_gen(parsed)))
-
-
