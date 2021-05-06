@@ -381,7 +381,7 @@ def readxl(fname, sheets=None, encoding='utf-8', delimiter=None,
             val = cell.value
             return val.strip() if isinstance(val, str) else val
 
-        workbook = openpyxl.load_workbook(fname, read_only=True, 
+        workbook = openpyxl.load_workbook(fname, read_only=True,
                                           data_only=True, keep_links=False)
         sheets = listify(sheets) if sheets else [workbook.sheetnames[0]]
         if sheets == ['*']:

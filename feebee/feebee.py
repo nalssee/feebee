@@ -2,7 +2,6 @@
 
 import csv
 import locale
-import multiprocessing as mp
 import os
 import random
 import signal
@@ -350,7 +349,6 @@ def _execute(c, job):
         c.join(job['args'], job['output'])
 
     elif cmd == 'mzip':
-        tsize = c._size(job['inputs'][0])
         gseqs = [groupby(c.fetch(f"""select * from {table}
                                      order by {', '.join(listify(cols))}"""),
                          _build_keyfn(cols))
@@ -414,7 +412,7 @@ def _execute_parallel_apply(c, job):
     # Rather expensive
     breaks = [int(i * tsize / max_workers) for i in range(1, max_workers)]
     exe = Pool(len(dbfiles))
-    
+
     # perform all the process per partition.
     def _proc(dbfile, cut):
         query = f"""select * from {ttable}
@@ -423,7 +421,8 @@ def _execute_parallel_apply(c, job):
         with _connect(dbfile) as c1:
             n = cut[1] - cut[0]
             seq = _applyfn(evaled_fn,
-                           _tqdm(c1.fetch(query, by=job['by']), n, by=job['by']))
+                           _tqdm(c1.fetch(query, by=job['by']),
+                                 n, by=job['by']))
             try:
                 c1.insert(seq, job['output'])
             except NoRowToInsert:
@@ -447,7 +446,7 @@ def _execute_parallel_apply(c, job):
         # collect tables from dbfiles
         for dbfile in succeeded_dbfiles:
             c._cursor.execute(f"attach database '{dbfile}' as {tcon}")
-            c._cursor.execute(f"""insert into {job['output']} 
+            c._cursor.execute(f"""insert into {job['output']}
                                   select * from {tcon}.{job['output']}
                                """)
             c._conn.commit()
@@ -474,7 +473,7 @@ def _execute_parallel_apply(c, job):
                     index += 1
                     if index >= n:
                         break
-                result.append(b0) 
+                result.append(b0)
             return result
 
         try:
@@ -485,7 +484,7 @@ def _execute_parallel_apply(c, job):
             c._conn.commit()
             group_breaks = \
                 [r['_ROWID_'] for r in c._cursor.execute(
-                    f"""select _ROWID_ from {temp_table}
+                    f"""select _ROWID_ from {tcon}.{ttable}
                         group by {','.join(job['by'])} having MAX(_ROWID_)
                     """)]
 
