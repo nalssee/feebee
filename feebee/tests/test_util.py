@@ -1,37 +1,28 @@
 import os
 import sys
 import unittest
-from random import shuffle
-import statsmodels.api as sm
-import numpy as np
 from itertools import groupby
+from random import shuffle
+
+import mapon.mapon as mo
+import numpy as np
+import statsmodels.api as sm
+from mapon.config import _DBNAME
+from mapon.util import (add_date, allnum, avg, chunk, getX, gety, group, isnum,
+                        lag, listify, overlap, readxl, set_default, step,
+                        where)
 from more_itertools import grouper
-
-TESTPATH = os.path.dirname(os.path.realpath(__file__))
-PYPATH = os.path.join(TESTPATH, '..', '..')
-sys.path.append(PYPATH)
-
-import feebee as fb
-from feebee.util import chunk, lag, add_date, isnum, readxl, listify,\
-    avg, group, where, overlap, set_default, allnum, getX, gety, step
-
-# only for testing
-import feebee.feebee as fb1
-
-
-def fet(c, tname):
-    return list(c.fetch(f"select * from {tname}"))
 
 
 def remdb():
-    if os.path.isfile('test_util.db'):
-        os.remove('test_util.db')
+    if os.path.isfile(_DBNAME):
+        os.remove(_DBNAME)
 
 
 def initialize():
     remdb()
-    fb1._JOBS = {}
-    fb.run()
+    mo._JOBS = {}
+    mo.run()
 
 
 def ndate(n):
@@ -138,11 +129,11 @@ def affix(**kwargs):
 class TestEmAll(unittest.TestCase):
     def setUp(self):
         initialize()
-        fb.register(
-            orderdetails=fb.load('orderdetails.csv'),
-            orders=fb.load('orders.csv'),
+        mo.register(
+            orderdetails=mo.load('orderdetails.csv'),
+            orders=mo.load('orders.csv'),
         )
-        fb.run()
+        mo.run()
 
     def test_chunk(self):
         rs = [{'x': i} for i in range(10)]
@@ -154,8 +145,8 @@ class TestEmAll(unittest.TestCase):
         self.assertEqual(len(list(ls)), 15)
 
         # ratio cut
-        with fb1._connect('test_util.db') as c:
-            rs = fet(c, 'orderdetails')
+        with mo._connect(_DBNAME) as c:
+            rs = mo.get('orderdetails')
             a, b, c = chunk(rs, [0.3, 0.4, 0.3])
             n = len(rs)
             self.assertEqual(len(a), int(n * 0.3))
@@ -175,8 +166,8 @@ class TestEmAll(unittest.TestCase):
         self.assertEqual(xs, [[], [1], [3], [7, 7]])
 
     def test_lag(self):
-        with fb1._connect('test_util.db') as c:
-            rs = fet(c, 'orders')
+        with mo._connect(_DBNAME) as c:
+            rs = mo.get( 'orders')
             result = lag('orderid, customerid', 'orderdate', [1, 2, -1])(rs)
             self.assertEqual(len(rs), len(result))
             cols = list(result[0].keys())
@@ -234,26 +225,26 @@ class TestEmAll(unittest.TestCase):
         self.assertTrue(isnum(3, '-3.12'))
 
     def test_readxl(self):
-        fb.register(
-            foreign=fb.load(fnguide('foreign.xlsx', 'buy, sell')),
+        mo.register(
+            foreign=mo.load(fnguide('foreign.xlsx', 'buy, sell')),
         )
         # 'foreign' is reserved
-        with self.assertRaises(fb1.ReservedKeyword):
-            fb.run()
-        fb1._JOBS = {}
-        fb.register(
-            tvol=fb.load(fnguide('foreign.xlsx', 'buy, sell')),
-            size=fb.load(fnguide('foreign.xlsx', sheet='size', colnames='size, forsize')),
-            mdata=fb.load(fnguide('mdata.csv', colnames='a, b, c, d')),
+        with self.assertRaises(mo.ReservedKeyword):
+            mo.run()
+        mo._JOBS = {}
+        mo.register(
+            tvol=mo.load(fnguide('foreign.xlsx', 'buy, sell')),
+            size=mo.load(fnguide('foreign.xlsx', sheet='size', colnames='size, forsize')),
+            mdata=mo.load(fnguide('mdata.csv', colnames='a, b, c, d')),
         )
-        fb.run()
+        mo.run()
 
-        with fb1._connect('test_util.db') as c:
-            rs = fet(c, 'tvol')
+        with mo._connect(_DBNAME) as c:
+            rs = mo.get('tvol')
             self.assertEqual(len(rs), 285888)
-            rs = fet(c, 'size')
+            rs = mo.get('size')
             self.assertEqual(len(rs), 142944)
-            rs = fet(c, 'mdata')
+            rs = mo.get('mdata')
             self.assertEqual(len(rs), 213240)
 
     def test_readxl2(self):
@@ -267,6 +258,7 @@ class TestEmAll(unittest.TestCase):
                     next(rs)
                 self.assertEqual(next(rs)[1], 13290693)
 
+
     # xls file reading
     def test_readxl3(self):
         self.assertEqual(len(list(readxl('ff.xls'))), 961)
@@ -278,45 +270,45 @@ class TestEmAll(unittest.TestCase):
         self.assertEqual(listify([1, 2]), [1, 2])
 
     def test_truncate(self):
-        fb.register(
-            products=fb.load('products.csv'),
+        mo.register(
+            products=mo.load('products.csv'),
         )
-        fb.run()
-        with fb1._connect('test_util.db') as c:
-            rs = fet(c, 'products')
+        mo.run()
+        with mo._connect(_DBNAME) as c:
+            rs = mo.get('products')
             self.assertEqual(len(truncate(rs, 'Price', 0.1)), 61)
 
     def test_winsorize(self):
-        fb.register(
-            products=fb.load('products.csv'),
+        mo.register(
+            products=mo.load('products.csv'),
         )
-        fb.run()
+        mo.run()
 
-        with fb1._connect('test_util.db') as c:
-            rs = fet(c, 'products')
+        with mo._connect(_DBNAME) as c:
+            rs = mo.get('products')
             self.assertEqual(round(avg(rs, 'Price') * 100), 2887)
             rs = winsorize(rs, 'Price', 0.2)
             self.assertEqual(round(avg(rs, 'Price') * 100), 2296)
 
     def test_avg(self):
-        fb.register(
-            products=fb.load('products.csv'),
+        mo.register(
+            products=mo.load('products.csv'),
         )
-        fb.run()
+        mo.run()
 
-        with fb1._connect('test_util.db') as c:
-            rs1 = fet(c, 'products')
+        with mo._connect(_DBNAME) as c:
+            rs1 = mo.get('products')
             self.assertEqual(round(avg(rs1, 'Price') * 100), 2887)
             self.assertEqual(round(avg(rs1, 'Price', 'CategoryID') * 100), 2811)
 
     def test_ols(self):
-        fb.register(
-            products=fb.load('products.csv'),
+        mo.register(
+            products=mo.load('products.csv'),
         )
-        fb.run()
+        mo.run()
 
-        with fb1._connect('test_util.db') as c:
-            rs = fet(c, 'products')
+        with mo._connect(_DBNAME) as c:
+            rs = mo.get('products')
             # with Constant
             y, X = gety(rs, 'Price'), getX(rs, 'SupplierID, CategoryID', True)
             res = sm.OLS(y, X).fit()
@@ -329,13 +321,13 @@ class TestEmAll(unittest.TestCase):
             self.assertEqual(len(res.resid), len(rs))
 
     def test_group(self):
-        fb.register(
-            customers=fb.load('customers.csv'),
+        mo.register(
+            customers=mo.load('customers.csv'),
         )
-        fb.run()
+        mo.run()
 
-        with fb1._connect('test_util.db') as c:
-            rs = fet(c, 'customers')
+        with mo._connect(_DBNAME) as c:
+            rs = mo.get('customers')
             ls = [len(g) for g in group(rs, 'Country')]
             self.assertEqual(ls, [3, 2, 2, 9, 3, 2, 2, 11, 11,
                                   1, 3, 5, 1, 1, 2, 5, 2, 2, 7, 13, 4])
@@ -390,9 +382,9 @@ class TestEmAll(unittest.TestCase):
         self.assertEqual([[r['a'] for r in rs1] for rs1 in rss],
                          [[0, 1, 2, 3, 4], [3, 4, 5, 6, 7], [6, 7, 8, 9], [9]])
 
-        with fb1._connect('test_util.db') as c:
+        with mo._connect(_DBNAME) as c:
             rs = []
-            for r in fet(c, 'orders'):
+            for r in mo.get('orders'):
                 r['yyyymm'] = r['orderdate'][:7]
                 rs.append(r)
 

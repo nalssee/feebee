@@ -1,13 +1,18 @@
-from setuptools import setup
+from setuptools import setup, find_packages
+
 
 setup(name='feebee',
-      version='0.8.4',
-      description='datawork tools',
+      version='0.8.5',
+      description='A data wrangling tool',
+      long_description=open('README.md').read(),
+
       url='https://github.com/nalssee/feebee.git',
       author='nalssee',
-      author_email='kenjin@sdf.org',
+      author_email='jinisrolling@gmail.com',
+
       license='MIT',
-      packages=['feebee'],
+      packages=find_packages(),
+      # packages=['feebee'],
       # Install statsmodels manually using conda install
       # TODO: Not easy to install numpy and stuff without conda
       install_requires=[
@@ -23,5 +28,9 @@ setup(name='feebee',
           # 'statsmodels==0.10.1',
           'statsmodels',
           'pandas',
-        ],
+      ],
+
+      include_package_data=True,
+      package_data={'': ['*.txt']},
+
       zip_safe=False)

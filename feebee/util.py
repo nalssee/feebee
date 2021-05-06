@@ -1,6 +1,7 @@
 import locale
 import csv
 import xlrd
+import openpyxl
 import numpy as np
 from itertools import accumulate, groupby, chain, islice
 import pandas as pd
@@ -251,7 +252,7 @@ def chunk(rs, n, column=None):
     # n is a list of percentiles
     elif not column:
         # then it is a list of percentiles for each chunk
-        assert sum(n) <= 1, f"Sum of percentils for chunks must be <= 1.0"
+        assert sum(n) <= 1, "Sum of percentils for chunks must be <= 1.0"
         ns = [int(x * size) for x in accumulate(n)]
         result = []
         for a, b in zip([0] + ns, ns):
@@ -350,7 +351,7 @@ def readxl(fname, sheets=None, encoding='utf-8', delimiter=None,
                                  delimiter=delimiter, quotechar=quotechar):
                 yield [conv(x) for x in rs]
 
-    else:
+    elif fname.endswith('xls'):
         # openpyxl does not work with the old ".xls" format
         def getval(cell):
             if cell.ctype == xlrd.XL_CELL_EMPTY or\
@@ -373,6 +374,25 @@ def readxl(fname, sheets=None, encoding='utf-8', delimiter=None,
         else:
             for sheet in sheets:
                 for row in workbook.sheet_by_name(sheet).get_rows():
+                    yield [getval(c) for c in row]
+    else:
+        # openpyxl for xlsx
+        def getval(cell):
+            val = cell.value
+            return val.strip() if isinstance(val, str) else val
+
+        workbook = openpyxl.load_workbook(fname, read_only=True, 
+                                          data_only=True, keep_links=False)
+        sheets = listify(sheets) if sheets else [workbook.sheetnames[0]]
+        if sheets == ['*']:
+            sheets = workbook.sheetnames
+        if by_sheet:
+            for sheet in sheets:
+                lines = ([getval(c) for c in r] for r in workbook[sheet].rows)
+                yield (sheet, lines)
+        else:
+            for sheet in sheets:
+                for row in workbook[sheet].rows:
                     yield [getval(c) for c in row]
 
 

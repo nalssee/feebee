@@ -1,121 +1,36 @@
-import os
-import sys
-import sqlite3
+"""main file."""
+
 import csv
 import locale
+import multiprocessing as mp
+import os
 import random
-import string
 import signal
-import logging
+import sqlite3
+import string
 from contextlib import contextmanager
-from itertools import groupby
 from inspect import signature
-
-import coloredlogs
-import psutil
-import pandas as pd
-from sas7bdat import SAS7BDAT
-from graphviz import Digraph
-from more_itertools import spy, chunked
-from pathos.multiprocessing import ProcessingPool as Pool
-from tqdm import tqdm
+from itertools import groupby
 from shutil import copyfile
+from pathos.multiprocessing import ProcessingPool as Pool
+
+import pandas as pd
+import psutil
+from graphviz import Digraph
+from more_itertools import chunked, spy
 from openpyxl import Workbook
+from sas7bdat import SAS7BDAT
+from tqdm import tqdm
 
-from .util import listify, step, _build_keyfn
+from .config import (_CONFIG, _CONN, _DBNAME, _GRAPH_NAME, _JOBS, _TEMP,
+                     _RESERVED_KEYWORDS)
+from .exceptions import (InvalidColumns, InvalidGroup, NoRowToInsert,
+                         NoRowToWrite, NoSuchTableFound, ReservedKeyword,
+                         SkipThisTurn, TableDuplication, UnknownConfig)
+from .logging import logger
+from .util import _build_keyfn, listify, step
 
-
-_locale = 'English_United States.1252' if os.name == 'nt' else 'en_US.UTF-8'
-
-_CONFIG = {
-    'ws': '',
-    'max_workers': psutil.cpu_count(logical=False),
-    'locale': _locale,
-    'msg': True,
-    'refresh': None,
-    'export': None,
-}
-
-_filename, _ = os.path.splitext(os.path.basename(sys.argv[0]))
-_DBNAME = _filename + '.db'
-_GRAPH_NAME = _filename + '.gv'
-_JOBS = {}
-# folder name (in workspace) for temporary databases for parallel work
-_TEMP = "_temp"
-_CONN = [None]
-# sqlite3 keywords
-_RESERVED_KEYWORDS = {
-    "ABORT", "ACTION", "ADD", "AFTER", "ALL", "ALTER", "ANALYZE", "AND", "AS",
-    "ASC", "ATTACH", "AUTOINCREMENT", "BEFORE", "BEGIN", "BETWEEN", "BY",
-    "CASCADE", "CASE", "CAST", "CHECK", "COLLATE", "COLUMN", "COMMIT",
-    "CONFLICT", "CONSTRAINT", "CREATE", "CROSS", "CURRENT", "CURRENT_DATE",
-    "CURRENT_TIME", "CURRENT_TIMESTAMP", "DATABASE", "DEFAULT", "DEFERRABLE",
-    "DEFERRED", "DELETE", "DESC", "DETACH", "DISTINCT", "DO", "DROP", "EACH",
-    "ELSE", "END", "ESCAPE", "EXCEPT", "EXCLUSIVE", "EXISTS", "EXPLAIN",
-    "FAIL", "FILTER", "FOLLOWING", "FOR", "FOREIGN", "FROM", "FULL", "GLOB",
-    "GROUP", "HAVING", "IF", "IGNORE", "IMMEDIATE", "IN", "INDEX", "INDEXED",
-    "INITIALLY", "INNER", "INSERT", "INSTEAD", "INTERSECT", "INTO", "IS",
-    "ISNULL", "JOIN", "KEY", "LEFT", "LIKE", "LIMIT", "MATCH", "NATURAL",
-    "NO", "NOT", "NOTHING", "NOTNULL", "NULL", "OF", "OFFSET", "ON", "OR",
-    "ORDER", "OUTER", "OVER", "PARTITION", "PLAN", "PRAGMA", "PRECEDING",
-    "PRIMARY", "QUERY", "RAISE", "RANGE", "RECURSIVE", "REFERENCES", "REGEXP",
-    "REINDEX", "RELEASE", "RENAME", "REPLACE", "RESTRICT", "RIGHT", "ROLLBACK",
-    "ROW", "ROWS", "SAVEPOINT", "SELECT", "SET", "TABLE", "TEMP", "TEMPORARY",
-    "THEN", "TO", "TRANSACTION", "TRIGGER", "UNBOUNDED", "UNION", "UNIQUE",
-    "UPDATE", "USING", "VACUUM", "VALUES", "VIEW", "VIRTUAL", "WHEN", "WHERE",
-    "WINDOW", "WITH", "WITHOUT"
-}
-
-
-coloredlogs.DEFAULT_FIELD_STYLES['levelname']['color'] = 'cyan'
-coloredlogs.install(
-    fmt='%(asctime)s %(levelname)s %(message)s',
-    datefmt="%Y-%m-%d %H:%M:%S"
-)
-
-logger = logging.getLogger(__name__)
-
-
-class FeebeeError(Exception):
-    pass
-
-
-class NoRowToInsert(FeebeeError):
-    "Where there's no row to write to a database"
-    pass
-
-
-class NoRowToWrite(FeebeeError):
-    "When there's no row to write to a CSV file"
-    pass
-
-
-class InvalidGroup(FeebeeError):
-    pass
-
-
-class UnknownConfig(FeebeeError):
-    pass
-
-
-class ReservedKeyword(FeebeeError):
-    pass
-
-
-class InvalidColumns(FeebeeError):
-    pass
-
-
-class TableDuplication(FeebeeError):
-    pass
-
-
-class NoSuchTableFound(FeebeeError):
-    pass
-
-
-class SkipThisTurn(FeebeeError):
-    pass
+# from pathos.multiprocessing import ProcessingPool as Pool
 
 
 @contextmanager
@@ -349,7 +264,8 @@ class _Connection:
 
 
 def get(tname, cols=None, df=False):
-    """Get a list of rows (the whole table) ordered by cols
+    """Get a list of rows (the whole table) ordered by cols.
+
     :param tname: table name
     :param cols: comma separated string
     :returns: a list of rows
@@ -423,33 +339,17 @@ def _execute(c, job):
                quotechar=job['quotechar'], encoding=job['encoding'],
                fn=job['fn'])
 
-    elif cmd == 'cast':
-        tsize = c._size(job['inputs'][0])
-        job['evaled_fn'] = job['fn']() if _is_thunk(job['fn']) else job['fn']
-
-        if job['parallel']:
-            max_workers = int(job['parallel'])\
-                if job['parallel'] >= 2 else _CONFIG['max_workers']
-            max_workers = min(max_workers, psutil.cpu_count())
-        if job['parallel'] and\
-            (job['by'].strip() != '*' if job['by'] else True) and\
-                max_workers > 1 and tsize >= max_workers:
-            logger.info(
-                f"processing {job['cmd']}: {job['output']}"
-                f" (multiprocessing: {max_workers})")
-            _exec_parallel_cast(c, job, max_workers, tsize)
+    elif cmd == 'apply':
+        if not job['parallel']:
+            _execute_serial_apply(c, job)
         else:
-            logger.info(f"processing {job['cmd']}: {job['output']}")
-            seq = c.fetch(f"select * from {job['inputs'][0]}", 
-                          listify(job['by']))
-            seq1 = _applyfn(job['evaled_fn'], _tqdm(seq, tsize, job['by']))
-            c.insert(seq1, job['output'])
+            _execute_parallel_apply(c, job)
 
     # The only place where 'insert' is not used
     elif cmd == 'join':
         c.join(job['args'], job['output'])
 
-    elif cmd == 'rail':
+    elif cmd == 'mzip':
         tsize = c._size(job['inputs'][0])
         gseqs = [groupby(c.fetch(f"""select * from {table}
                                      order by {', '.join(listify(cols))}"""),
@@ -460,7 +360,7 @@ def _execute(c, job):
                        tqdm(step(gseqs, stop_short=job['stop_short'])))
         c.insert(seq, job['output'])
 
-    elif cmd == 'glue':
+    elif cmd == 'concat':
         def gen():
             for inp in job['inputs']:
                 for r in c.fetch(f"select * from {inp}"):
@@ -482,8 +382,25 @@ def _line_count(fname, encoding, newline):
         return (sum(bl.count("\n") for bl in blocks(f))) - 1
 
 
+def _execute_serial_apply(c, job):
+    tsize = c._size(job['inputs'][0])
+    logger.info(f"processing {job['cmd']}: {job['output']}")
+    seq = c.fetch(f"select * from {job['inputs'][0]}", job['by'])
+    evaled_fn = job['fn']() if _is_thunk(job['fn']) else job['fn']
+    seq1 = _applyfn(evaled_fn, _tqdm(seq, tsize, job['by']))
+    c.insert(seq1, job['output'])
+
+
 # sqlite3 in osx can't handle multiple connections properly.
-def _exec_parallel_cast(c, job, max_workers, tsize):
+# Do not use multiprocessing.Queue. It's too pricy for this work.
+def _execute_parallel_apply(c, job):
+    max_workers = psutil.cpu_count(logical=False)
+    tsize = c._size(job['inputs'][0])
+    # Deal with corner cases
+    if max_workers < 2 or tsize < 2:
+        _execute_serial_apply(c, job)
+        return
+
     itable = job['inputs'][0]
     tdir = os.path.join(_CONFIG['ws'], _TEMP)
     if not os.path.exists(tdir):
@@ -491,20 +408,22 @@ def _exec_parallel_cast(c, job, max_workers, tsize):
     dbfiles = [os.path.join(_TEMP, _random_string(10))
                for _ in range(max_workers)]
 
+    evaled_fn = job['fn']() if _is_thunk(job['fn']) else job['fn']
     tcon = 'con' + _random_string(9)
     ttable = "tbl" + _random_string(9)
     # Rather expensive
     breaks = [int(i * tsize / max_workers) for i in range(1, max_workers)]
-    bys = listify(job['by']) if job['by'] else None
     exe = Pool(len(dbfiles))
-
+    
+    # perform all the process per partition.
     def _proc(dbfile, cut):
         query = f"""select * from {ttable}
-        where _ROWID_ > {cut[0]} and _ROWID_ <= {cut[1]}"""
+                    where _ROWID_ > {cut[0]} and _ROWID_ <= {cut[1]}
+                 """
         with _connect(dbfile) as c1:
             n = cut[1] - cut[0]
-            seq = _applyfn(job['evaled_fn'],
-                           _tqdm(c1.fetch(query, by=bys), n, by=bys))
+            seq = _applyfn(evaled_fn,
+                           _tqdm(c1.fetch(query, by=job['by']), n, by=job['by']))
             try:
                 c1.insert(seq, job['output'])
             except NoRowToInsert:
@@ -521,15 +440,16 @@ def _exec_parallel_cast(c, job, max_workers, tsize):
             raise NoRowToInsert
 
         with _connect(succeeded_dbfiles[0]) as c1:
+            # query order is not actually specified
             ocols = c1._cols(f"select * from {job['output']}")
         c._cursor.execute(_create_statement(job['output'], ocols))
 
         # collect tables from dbfiles
         for dbfile in succeeded_dbfiles:
             c._cursor.execute(f"attach database '{dbfile}' as {tcon}")
-            c._cursor.execute(f"""
-            insert into {job['output']} select * from {tcon}.{job['output']}
-            """)
+            c._cursor.execute(f"""insert into {job['output']} 
+                                  select * from {tcon}.{job['output']}
+                               """)
             c._conn.commit()
             c._cursor.execute(f"detach database {tcon}")
 
@@ -540,39 +460,45 @@ def _exec_parallel_cast(c, job, max_workers, tsize):
                     os.remove(dbfile)
 
     # condition for parallel work by group
-    if bys:
+    if job['by']:
+        def new_breaks(breaks, group_breaks):
+            index = 0
+            result = []
+            n = len(breaks)
+            for b0 in group_breaks:
+                if index >= n:
+                    break
+                if b0 < breaks[index]:
+                    continue
+                while breaks[index] <= b0:
+                    index += 1
+                    if index >= n:
+                        break
+                result.append(b0) 
+            return result
+
         try:
             c._cursor.execute(f"attach database '{dbfiles[0]}' as {tcon}")
-            c._cursor.execute(f"""
-            create table {tcon}.{ttable} as select * from {itable}
-            order by {','.join(bys)}
-            """)
+            c._cursor.execute(f"""create table {tcon}.{ttable} as select * from {itable}
+                                  order by {','.join(job['by'])}
+                               """)
             c._conn.commit()
+            group_breaks = \
+                [r['_ROWID_'] for r in c._cursor.execute(
+                    f"""select _ROWID_ from {temp_table}
+                        group by {','.join(job['by'])} having MAX(_ROWID_)
+                    """)]
+
+            if len(group_breaks) == 1:
+                _execute_serial_apply(c, job)
+                return
+            breaks = new_breaks(breaks, group_breaks)
             c._cursor.execute(f"detach database {tcon}")
 
-            with _connect(dbfiles[0]) as c1:
-                def nth_gcols(n):
-                    c1._cursor.execute(f"""select * from {ttable}
-                    where _ROWID_ == {n} limit 1""")
-                    r = c1._cursor.fetchone()
-                    return [r[c] for c in bys]
-
-                def where1(br):
-                    return ' and '.join(f"{c} = {repr(v)}"
-                                        for c, v in zip(bys, nth_gcols(br)))
-
-                def build_wheres(breaks):
-                    return ' or '.join(where1(br) for br in breaks)
-
-                newbreaks = [list(r.values())[0] for r in c1._cursor.
-                             execute(f"""select _ROWID_ from {ttable}
-                                      where {build_wheres(breaks)} group by
-                                      {','.join(bys)} having MAX(_ROWID_)""")]\
-                    + [tsize]
             for dbfile in dbfiles[1:]:
                 copyfile(dbfiles[0], dbfile)
 
-            exe.map(_proc, dbfiles, zip([0] + newbreaks, newbreaks))
+            exe.map(_proc, dbfiles, zip([0] + breaks, breaks))
             _collect_tables(dbfiles)
         finally:
             _delete_dbfiles(dbfiles)
@@ -582,7 +508,8 @@ def _exec_parallel_cast(c, job, max_workers, tsize):
         try:
             c._cursor.execute(f"attach database '{dbfiles[0]}' as {tcon}")
             c._cursor.execute(f"""create table {tcon}.{ttable}
-             as select * from {itable}""")
+                                  as select * from {itable}
+                               """)
             c._conn.commit()
             c._cursor.execute(f"detach database {tcon}")
             for dbfile in dbfiles[1:]:
@@ -595,6 +522,7 @@ def _exec_parallel_cast(c, job, max_workers, tsize):
 
 
 def load(file=None, fn=None, delimiter=None, quotechar='"', encoding='utf-8'):
+    """Forms load instruction."""
     return {'cmd': 'load',
             'file': file,
             'fn': fn,
@@ -605,17 +533,19 @@ def load(file=None, fn=None, delimiter=None, quotechar='"', encoding='utf-8'):
             }
 
 
-def cast(fn=None, data=None, by=None, parallel=False):
+def apply(fn=None, data=None, by=None, parallel=False):
+    """Forms apply instruction."""
     return {
-        'cmd': 'cast',
+        'cmd': 'apply',
         'fn': fn,
         'inputs': [data],
-        'by': by,
+        'by': listify(by) if by else None,
         'parallel': parallel,
     }
 
 
 def join(*args):
+    """Forms join instruction."""
     inputs = [arg[0] for arg in args]
     return {
         'cmd': 'join',
@@ -624,9 +554,10 @@ def join(*args):
     }
 
 
-def rail(fn, data=None, stop_short=False):
+def mzip(fn, data=None, stop_short=False):
+    """Forms mzip instruction."""
     return {
-        'cmd': 'rail',
+        'cmd': 'mzip',
         'fn': fn,
         'inputs': [table for table, _ in data],
         'data': data,
@@ -634,9 +565,10 @@ def rail(fn, data=None, stop_short=False):
     }
 
 
-def glue(inputs):
+def concat(inputs):
+    """Forms concat instruction."""
     return {
-        'cmd': 'glue',
+        'cmd': 'concat',
         'inputs': listify(inputs)
     }
 
@@ -647,14 +579,14 @@ def register(**kwargs):
     .. highlight:: python
     .. code-block:: python
 
-        import feebee as fb
+        import mapon as mo
 
         fb.register(
             table_name = fb.load('sample.csv'),
-            table_name1 = fb.cast(simple_process, 'table_name'),
+            table_name1 = fb.apply(simple_process, 'table_name'),
         )
 
-        fb.run()
+        mo.run()
     """
     for k, _ in kwargs.items():
         if _JOBS.get(k, False):
@@ -663,14 +595,11 @@ def register(**kwargs):
 
 
 def run(**kwargs):
-    """Run registered processes, only those that are not in the database and
-    also that depend on those missing processes.
+    """Run registered processes, only those that are not in the database and\
+        also that depend on those missing processes.
 
     :param ws: working space, the default is where the script is.
     :type ws: path as str
-    :param max_workers: maxinum workers for parallel work. The default is the
-        number of physical cores of your CPU.
-    :type max_workers: int
     :param locale: The default is en_US.UTF-8
         (English_United States.1252 for Windows)
     :param msg: You may not want visual noises in the terminal.
@@ -807,7 +736,7 @@ def _run():
             for i, job in enumerate(jobs_to_do):
                 if is_doable(job):
                     try:
-                        if job['cmd'] != 'cast':
+                        if job['cmd'] != 'apply':
                             logger.info(
                                 f"processing {job['cmd']}: {job['output']}")
                         _execute(c, job)
@@ -855,7 +784,7 @@ def _run():
 
 
 def _random_string(nchars):
-    "Generates a random string of lengh 'n' with alphabets and digits. "
+    """Generate a random string of lengh 'n' with alphabets and digits."""
     chars = string.ascii_letters + string.digits
     return ''.join(random.SystemRandom().choice(chars)
                    for _ in range(nchars))
@@ -863,7 +792,7 @@ def _random_string(nchars):
 
 # primary keys are too much for non-experts
 def _create_statement(name, colnames):
-    """create table if not exists foo (...)
+    """Create table if not exists foo (...).
 
     Note:
         Every type is numeric.
@@ -877,7 +806,10 @@ def _create_statement(name, colnames):
 
 # column can contain spaces. So you must strip them all
 def _insert_statement(name, d):
-    "insert into foo values (:a, :b, :c, ...)"
+    """Generate an insert statememt.
+
+    ex) insert into foo values (:a, :b, :c, ...)
+    """
     keycols = ', '.join(":" + c.strip() for c in d)
     return "insert into %s values (%s)" % (name, keycols)
 
