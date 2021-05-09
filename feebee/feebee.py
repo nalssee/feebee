@@ -21,7 +21,8 @@ from openpyxl import Workbook
 from sas7bdat import SAS7BDAT
 from tqdm import tqdm
 
-from .config import (_CONFIG, _CONN, _DBNAME, _GRAPH_NAME, _JOBS, _TEMP,
+from .config import (_CONFIG, _CONN, _DBNAME, _GRAPH_NAME,
+                     _JOBS, _TEMP, _WS,
                      _RESERVED_KEYWORDS)
 from .exceptions import (InvalidColumns, InvalidGroup, NoRowToInsert,
                          NoRowToWrite, NoSuchTableFound, ReservedKeyword,
@@ -70,12 +71,9 @@ def _delayed_keyboard_interrupts():
 
 class _Connection:
     def __init__(self, dbfile):
-        if not _CONFIG['ws']:
-            _CONFIG['ws'] = os.getcwd()
-        dbfile = os.path.join(_CONFIG['ws'], dbfile)
+        dbfile = os.path.join(_WS[0], dbfile)
         locale.setlocale(locale.LC_ALL, _CONFIG['locale'])
         logger.propagate = _CONFIG['msg']
-
         self._conn = sqlite3.connect(dbfile)
         self._conn.row_factory = _dict_factory
         self._cursor = self._conn.cursor()
@@ -239,10 +237,10 @@ class _Connection:
                 sheet.append(header)
                 for r in rs:
                     sheet.append(list(r.values()))
-                book.save(os.path.join(_CONFIG['ws'], f'{table}.xlsx'))
+                book.save(os.path.join(_WS[0], f'{table}.xlsx'))
 
             else:
-                with open(os.path.join(_CONFIG['ws'], table + '.csv'), 'w',
+                with open(os.path.join(_WS[0], table + '.csv'), 'w',
                           encoding='utf-8', newline='') as f:
                     rs = self.fetch(f'select * from {table}')
                     r0, rs = spy(rs)
@@ -374,8 +372,8 @@ def _line_count(fname, encoding, newline):
             if not b:
                 break
             yield b
-
-    with open(fname, encoding=encoding, newline=newline, errors='ignore') as f:
+    fname1 = os.path.join(_WS[0], fname)
+    with open(fname1, encoding=encoding, newline=newline, errors='ignore') as f:
         # subtract -1 for a header
         return (sum(bl.count("\n") for bl in blocks(f))) - 1
 
@@ -400,20 +398,16 @@ def _execute_parallel_apply(c, job):
         return
 
     itable = job['inputs'][0]
-    tdir = os.path.join(_CONFIG['ws'], _TEMP)
+    tdir = os.path.join(_WS[0], _TEMP)
     if not os.path.exists(tdir):
         os.makedirs(tdir)
-    dbfiles = [os.path.join(_TEMP, _random_string(10))
-               for _ in range(max_workers)]
-
     evaled_fn = job['fn']() if _is_thunk(job['fn']) else job['fn']
     tcon = 'con' + _random_string(9)
     ttable = "tbl" + _random_string(9)
-    # Rather expensive
-    breaks = [int(i * tsize / max_workers) for i in range(1, max_workers)]
-    exe = Pool(len(dbfiles))
+    breaks = [int(i * tsize / max_workers)
+              for i in range(1, max_workers)]
 
-    # perform all the process per partition.
+   # perform all the process per partition.
     def _proc(dbfile, cut):
         query = f"""select * from {ttable}
                     where _ROWID_ > {cut[0]} and _ROWID_ <= {cut[1]}
@@ -477,27 +471,34 @@ def _execute_parallel_apply(c, job):
             return result
 
         try:
-            c._cursor.execute(f"attach database '{dbfiles[0]}' as {tcon}")
+            dbfile0 = os.path.join(_TEMP, _random_string(10))
+            c._cursor.execute(f"attach database '{dbfile0}' as {tcon}")
             c._cursor.execute(f"""create table {tcon}.{ttable} as select * from {itable}
                                   order by {','.join(job['by'])}
                                """)
             c._conn.commit()
             group_breaks = \
-                [r['_ROWID_'] for r in c._cursor.execute(
+                [list(r.values())[0] for r in c._cursor.execute(
                     f"""select _ROWID_ from {tcon}.{ttable}
                         group by {','.join(job['by'])} having MAX(_ROWID_)
                     """)]
-
             if len(group_breaks) == 1:
                 _execute_serial_apply(c, job)
                 return
             breaks = new_breaks(breaks, group_breaks)
-            c._cursor.execute(f"detach database {tcon}")
 
+            dbfiles = [dbfile0] + [os.path.join(_TEMP, _random_string(10))
+                                   for _ in range(len(breaks))]
+            exe = Pool(len(dbfiles))
+
+            c._cursor.execute(f"detach database {tcon}")
+            logger.info(
+                f"processing {job['cmd']}: {job['output']}"
+                f" (multiprocessing: {len(breaks) + 1})")
             for dbfile in dbfiles[1:]:
                 copyfile(dbfiles[0], dbfile)
 
-            exe.map(_proc, dbfiles, zip([0] + breaks, breaks))
+            exe.map(_proc, dbfiles, zip([0] + breaks, breaks + [tsize]))
             _collect_tables(dbfiles)
         finally:
             _delete_dbfiles(dbfiles)
@@ -505,6 +506,11 @@ def _execute_parallel_apply(c, job):
     # non group parallel work
     else:
         try:
+           # remove duplicates
+            breaks = list(dict.fromkeys(breaks))
+            dbfiles = [os.path.join(_TEMP, _random_string(10))
+                       for _ in range(len(breaks) + 1)]
+            exe = Pool(len(dbfiles))
             c._cursor.execute(f"attach database '{dbfiles[0]}' as {tcon}")
             c._cursor.execute(f"""create table {tcon}.{ttable}
                                   as select * from {itable}
@@ -513,6 +519,10 @@ def _execute_parallel_apply(c, job):
             c._cursor.execute(f"detach database {tcon}")
             for dbfile in dbfiles[1:]:
                 copyfile(dbfiles[0], dbfile)
+
+            logger.info(
+                f"processing {job['cmd']}: {job['output']}"
+                f" (multiprocessing: {len(breaks) + 1})")
 
             exe.map(_proc, dbfiles, zip([0] + breaks, breaks + [tsize]))
             _collect_tables(dbfiles)
@@ -674,7 +684,7 @@ def _run():
         for job in jobs:
             if job['cmd'] == 'load':
                 dot.node(job['output'], job['output'])
-        dot.render(_GRAPH_NAME)
+        dot.render(os.path.join(_WS[0], _GRAPH_NAME))
 
     jobs = append_output(_JOBS)
     required_tables = find_required_tables(jobs)
@@ -815,7 +825,7 @@ def _insert_statement(name, d):
 
 def _read_csv(filename, delimiter=',', quotechar='"',
               encoding='utf-8', newline="\n"):
-    with open(os.path.join(_CONFIG['ws'], filename),
+    with open(os.path.join(_WS[0], filename),
               encoding=encoding, newline=newline) as f:
         header = [c.strip() for c in f.readline().split(delimiter)]
         yield from csv.DictReader(f, fieldnames=header,
@@ -823,7 +833,7 @@ def _read_csv(filename, delimiter=',', quotechar='"',
 
 
 def _read_sas(filename):
-    filename = os.path.join(_CONFIG['ws'], filename)
+    filename = os.path.join(_WS[0], filename)
     with SAS7BDAT(filename) as f:
         reader = f.readlines()
         header = [c.strip() for c in next(reader)]
@@ -840,7 +850,7 @@ def _read_df(df):
 
 # this could be more complex but should it be?
 def _read_excel(filename):
-    filename = os.path.join(_CONFIG['ws'], filename)
+    filename = os.path.join(_WS[0], filename)
     # it's OK. Excel files are small
     df = pd.read_excel(filename, keep_default_na=False)
     yield from _read_df(df)
@@ -848,7 +858,7 @@ def _read_excel(filename):
 
 # raises a deprecation warning
 def _read_stata(filename):
-    filename = os.path.join(_CONFIG['ws'], filename)
+    filename = os.path.join(_WS[0], filename)
     chunk = 10_000
     for xs in pd.read_stata(filename, chunksize=chunk):
         yield from _read_df(xs)

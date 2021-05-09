@@ -1,40 +1,40 @@
-class MapOnError(Exception):
+class feebeeError(Exception):
     pass
 
 
-class NoRowToInsert(MapOnError):
+class NoRowToInsert(feebeeError):
     "Where there's no row to write to a database"
     pass
 
 
-class NoRowToWrite(MapOnError):
+class NoRowToWrite(feebeeError):
     "When there's no row to write to a CSV file"
     pass
 
 
-class InvalidGroup(MapOnError):
+class InvalidGroup(feebeeError):
     pass
 
 
-class UnknownConfig(MapOnError):
+class UnknownConfig(feebeeError):
     pass
 
 
-class ReservedKeyword(MapOnError):
+class ReservedKeyword(feebeeError):
     pass
 
 
-class InvalidColumns(MapOnError):
+class InvalidColumns(feebeeError):
     pass
 
 
-class TableDuplication(MapOnError):
+class TableDuplication(feebeeError):
     pass
 
 
-class NoSuchTableFound(MapOnError):
+class NoSuchTableFound(feebeeError):
     pass
 
 
-class SkipThisTurn(MapOnError):
+class SkipThisTurn(feebeeError):
     pass
