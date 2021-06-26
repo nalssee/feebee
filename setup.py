@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 
 setup(name='feebee',
-      version='0.8.6',
+      version='0.8.8',
       description='A data wrangling tool',
       long_description=open('README.md').read(),
 
@@ -25,12 +25,12 @@ setup(name='feebee',
           'more-itertools>=5.0.0',
           'coloredlogs>=10.0',
           'tqdm>=4.29.1',
-          # 'statsmodels==0.10.1',
+          'statsmodels==0.10.1',
           'statsmodels',
           'pandas',
       ],
 
       include_package_data=True,
-      package_data={'': ['*.txt']},
+      package_data={'feebee': ['*.txt']},
 
       zip_safe=False)
